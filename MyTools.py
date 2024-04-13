@@ -1,6 +1,7 @@
 import contextlib
 import itertools
 import os
+import subprocess
 import sys
 import re
 import ColorStr
@@ -178,20 +179,50 @@ def clear_lines_above(num_lines: int):
         print("\033[F\033[K", end="")
 
 
-def get_folder_size(folder_path: str) -> int:
+def get_folder_size(folder_path: str, verbose: bool = True) -> int:
     """
     计算包括所有内容在内的文件夹的总大小。
     返回:  int: 文件夹的总大小（以字节为单位）。
     """
-    total_size = 0
-    try:
-        for dirpath, dirnames, filenames in os.walk(folder_path):
-            for filename in filenames:
-                file_path = os.path.join(dirpath, filename)
-                total_size += os.path.getsize(file_path)
-    except Exception as e:
-        print(ColorStr.LIGHT_RED(f"[An error occurred while calculating the folder size]: {e}"))
+    error_msg = ColorStr.LIGHT_RED(f"[Error]: The folder {folder_path} does not exist.")
+    if os.name == "posix":
+        command = ["du", "-s", folder_path]
+        result = subprocess.run(command, capture_output=True, text=True)
+        if not result.stdout:
+            if verbose:
+                print(error_msg)
+            return 0
+        kilo_totalsize = result.stdout.strip().split("\t")[0]
+        total_size = int(kilo_totalsize) * 1024  # 转换为字节
+    else:  # os.name == "nt":
+        command = ["dir", folder_path, "/S", "/-C"]
+        if not os.path.exists(folder_path):
+            if verbose:
+                print(error_msg)
+            return 0
+        try:
+            result = subprocess.check_output(command, shell=True)
+            line_bytes = result.splitlines()[-2]
+            total_size = re.findall(b"\d+", line_bytes)[-1]
+            return int(total_size)
+        except subprocess.CalledProcessError:
+            if verbose:
+                print(error_msg)
+            return 0
     return total_size
+    # total_size = 0
+    # for dirpath, dirnames, filenames in os.walk(folder_path):
+    #     for filename in filenames:
+    #         file_path = os.path.join(dirpath, filename)
+    #         try:
+    #             total_size += os.path.getsize(file_path)
+    #         except Exception as e:
+    #             if verbose:
+    #                 print(
+    #                     ColorStr.LIGHT_RED(
+    #                         f"[An error occurred while calculating the folder size]: {e}"
+    #                     )
+    #                 )
 
 
 def get_char(prompt: str = "", echo: bool = True) -> str:
