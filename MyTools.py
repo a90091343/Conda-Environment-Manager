@@ -1,11 +1,14 @@
 import contextlib
+import ctypes
 import itertools
 import os
 import subprocess
 import sys
 import re
-import ColorStr
+import wcwidth
 from packaging.version import Version, InvalidVersion
+
+from ColorStr import *
 
 
 def version_parse(version: str):
@@ -13,7 +16,7 @@ def version_parse(version: str):
         return Version(version)
     except InvalidVersion:
         try:
-            from packaging.version import LegacyVersion
+            from packaging.version import LegacyVersion  # type: ignore
 
             return LegacyVersion(version)
         except ImportError:
@@ -25,33 +28,34 @@ def remove_color_from_str(colorful_str: str) -> str:
     return re.sub(r"\x1b\[\d+m", "", colorful_str)
 
 
-def printlen(s: str) -> int:
-    "返回字符串在控制台的打印格数，英文占1格，中文占2格"
-    length = 0
+def len_to_print(s: str) -> int:
+    "返回字符串在控制台的实际打印所占格数"
     s = remove_color_from_str(s)
-    for char in s:
-        # 获取字符的 Unicode 编码
-        char_code = ord(char)
-        # 判断字符是否是中文
-        if 0x4E00 <= char_code <= 0x9FFF:
-            length += 2
-        else:
-            length += 1
-    return length
+    return wcwidth.wcswidth(s)
+    # try:
+    #     return len(s.encode("gbk"))
+    # except:
+    #     length = 0
+    #     for char in s:
+    #         # 获取字符的 Unicode 编码
+    #         char_code = ord(char)
+    #         # 判断字符是否是全角字符
+    #         length += 2 if 0x0800 <= char_code <= 0xFFFF else 1
+    #     return length
 
 
 def cut_printstr(lim, s):
     "lim:限制打印格数，返回截断的字符串"
-    if printlen(s) <= lim:
+    if len_to_print(s) <= lim:
         return s
     s = str(s)
     rs = ""
     lth = 0
 
-    for c in s:
-        lth += printlen(c)
-        rs += c
+    for i, c in enumerate(s):
+        lth += len_to_print(c)
         if lth >= lim:
+            rs = s[: i + 1]
             break
     return rs
 
@@ -62,10 +66,10 @@ def path_intable(n, path: str):
     p1 = path
     p2 = ""
     p3 = ""
-    while printlen(p1) > n:
+    while len_to_print(p1) > n:
         p1, pt = os.path.split(p1)
         p2 = os.path.join(pt, p2)
-    while printlen(p2) > n + 1:
+    while len_to_print(p2) > n + 1:
         p2, pt = os.path.split(p2)
         if pt == "":
             p2 += "\\"
@@ -73,10 +77,10 @@ def path_intable(n, path: str):
         p3 = os.path.join(pt, p3)
     if p2 == "":
         pt1, pt2 = os.path.split(path)
-        return os.path.join(pt1, ColorStr.LIGHT_GREEN(pt2))
+        return os.path.join(pt1, LIGHT_GREEN(pt2))
     elif p3 == "":
         pt1, pt2 = os.path.split(p2[:-1])
-        return os.path.join(p1, "") + "\n" + os.path.join(pt1, ColorStr.LIGHT_GREEN(pt2))
+        return os.path.join(p1, "") + "\n" + os.path.join(pt1, LIGHT_GREEN(pt2))
     else:
         pt1, pt2 = os.path.split(p3[:-1])
         return (
@@ -84,7 +88,7 @@ def path_intable(n, path: str):
             + "\n"
             + os.path.join(p2, "")
             + "\n"
-            + os.path.join(pt1, ColorStr.LIGHT_GREEN(pt2))
+            + os.path.join(pt1, LIGHT_GREEN(pt2))
         )
 
 
@@ -111,11 +115,7 @@ def show_indir(workdir, showhat="all"):
         tb.add_row(
             [
                 sn,
-                (
-                    ColorStr.LIGHT_GREEN(obj.name)
-                    if obj.is_file()
-                    else ColorStr.BLUE(obj.name, backclr="lg")
-                ),
+                (LIGHT_GREEN(obj.name) if obj.is_file() else BLUE(obj.name, backclr="lg")),
             ]
         )
     print(tb)
@@ -137,19 +137,25 @@ def show_indir(workdir, showhat="all"):
     return rlist
 
 
-def print_fsize_smart(fsize: int, precision: int = 3) -> str:
+def print_fsize_smart(
+    fsize: int,
+    precision: int = 3,
+    B_suffix: bool = True,
+) -> str:
     """
     返回文件大小的格式化的字符串
     by chatGPT
     """
     assert type(fsize) == int, "fsize must be an integer"
     # 转换为合适的单位
-    units = ["B", "KB", "MB", "GB", "TB"]
+    units_B = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"]
+    units_non_B = ["B", "K", "M", "G", "T", "P"]
+    units = units_B if B_suffix else units_non_B
     sign = "" if fsize >= 0 else "-"
     fsize = abs(fsize)
     if fsize == 0:
         return "0"
-    for i in range(len(units)):
+    for i in range(len(units) - 1):
         if fsize < 1024:
             if fsize > 1000:
                 return f"{sign}{fsize/1024:.{max(0,precision-4)}f} {units[i+1]}"
@@ -160,7 +166,7 @@ def print_fsize_smart(fsize: int, precision: int = 3) -> str:
             else:
                 return f"{sign}{fsize:.{max(0,precision-1)}f} {units[i]}"
         fsize /= 1024  # type: ignore
-    return f"{sign}{fsize:.2f} PB"
+    return f"{sign}{fsize:.2f} {units[-1]}"
     # import math
     # size_bytes = fsize
     # size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
@@ -182,34 +188,36 @@ def clear_lines_above(num_lines: int):
 def get_folder_size(folder_path: str, verbose: bool = True) -> int:
     """
     计算包括所有内容在内的文件夹的总大小。
+    [注意] win下会重复统计硬链接，导致统计结果大于实际磁盘占用
     返回:  int: 文件夹的总大小（以字节为单位）。
     """
-    error_msg = ColorStr.LIGHT_RED(f"[Error]: The folder {folder_path} does not exist.")
+    error_msg = LIGHT_RED(f"[Error]: The folder {folder_path} does not exist.")
     if os.name == "posix":
         command = ["du", "-s", folder_path]
         result = subprocess.run(command, capture_output=True, text=True)
-        if not result.stdout:
+        if not result.stdout or result.returncode != 0:
             if verbose:
-                print(error_msg)
+                print(RED(error_msg))
             return 0
         kilo_totalsize = result.stdout.strip().split("\t")[0]
         total_size = int(kilo_totalsize) * 1024  # 转换为字节
+        return total_size
     else:  # os.name == "nt":
         command = ["dir", folder_path, "/S", "/-C"]
+        # command = f'dir "{folder_path}" /S /-C' # 若要用字符串形式，则path记得加引号（左为正确形式）
         if not os.path.exists(folder_path):
             if verbose:
-                print(error_msg)
+                print(RED(error_msg))
             return 0
         try:
             result = subprocess.check_output(command, shell=True)
             line_bytes = result.splitlines()[-2]
             total_size = re.findall(b"\d+", line_bytes)[-1]
             return int(total_size)
-        except subprocess.CalledProcessError:
+        except Exception as e:
             if verbose:
-                print(error_msg)
+                print(RED(e))
             return 0
-    return total_size
     # total_size = 0
     # for dirpath, dirnames, filenames in os.walk(folder_path):
     #     for filename in filenames:
@@ -219,17 +227,18 @@ def get_folder_size(folder_path: str, verbose: bool = True) -> int:
     #         except Exception as e:
     #             if verbose:
     #                 print(
-    #                     ColorStr.LIGHT_RED(
+    #                     LIGHT_RED(
     #                         f"[An error occurred while calculating the folder size]: {e}"
     #                     )
     #                 )
+    # return total_size
 
 
-def get_char(prompt: str = "", echo: bool = True) -> str:
+def get_char(echo: bool = True) -> str:
     """
     从标准输入流中读取单个字符，不等待回车。
     """
-    print(prompt, end="", flush=True)
+    print("", end="", flush=True)
 
     if os.name == "posix":
         import tty
@@ -660,3 +669,20 @@ def ordered_unique(input_list):
             output_list.append(item)
             seen.add(item)
     return output_list
+
+
+def get_cluster_size_windows(path: str):
+    """获取Windows的NTFS簇大小"""
+    sectorsPerCluster = ctypes.c_ulonglong(0)
+    bytesPerSector = ctypes.c_ulonglong(0)
+    rootPathName = ctypes.c_wchar_p(path)
+
+    ctypes.windll.kernel32.GetDiskFreeSpaceW(
+        rootPathName,
+        ctypes.pointer(sectorsPerCluster),
+        ctypes.pointer(bytesPerSector),
+        None,
+        None,
+    )
+
+    return sectorsPerCluster.value * bytesPerSector.value

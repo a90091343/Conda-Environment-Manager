@@ -1,41 +1,20 @@
-###### 实现一个anaconda3或Miniforge3环境快捷选择进入命令行的脚本，方便快速进入不同的环境，不用每次都激活环境，然后再进入命令行。例如键入1即进入base环境，键入2即进入自定义1环境，键入3即进入自定义2环境，以此类推。
-###### 使用方法：将该脚本放在某文件夹下，然后创建快捷方式，右键选择以管理员方式运行，然后将此快捷方式固定到开始菜单上即可。
-###### """ 脚本思路：
-###### 1、先通过\miniforge3\Scripts\conda.exe env list命令获取所有环境的名称，然后将其存入一个列表中。
-###### 2、格式化输出列表中的环境名称，然后提示用户输入数字，要求1对应base，等等。
-###### 3、获取键盘输入的值，然后将其转换为数字，然后通过列表的索引值获取对应的环境名称。
-###### 4、通过os.system()命令运行%windir%\System32\WindowsPowerShell\v1.0\powershell.exe -ExecutionPolicy ByPass -NoExit -Command "& 'C:\\Users\\*\\miniforge3\\shell\\condabin\\conda-hook.ps1' ; conda activate '对应环境名称' "激活环境，然后进入命令行。
-###### """
-# 2023-9-26 v1 稳定版
-# 2023-9-27 v2 稳定版,增加了对Linux系统的全面适配
-# 2023-9-27 23:29 v2.10 完全版,优化了一些细节
-# 2023-9-28 v2.100 完全版,增加了探测所有可用发行版的功能，修复了一些错误
-# 2023-9-28 16:19--20:08 v3 稳定完全版,优化显示模块,优化逻辑，修复小错误，全面完善功能
-# 2023-9-28 22:50 v3.100 发行版,增加搜索包功能，增加退出功能
-# 2023-9-29 中秋 验收完毕
-# 2023-10-12 v5.0 大大增强了发行版的识别成功率
-# 2024-3-16 v5.1 (Release 0.1.rc0) 改善代码逻辑，修复若干问题，添加复制环境功能[P]，打开环境主目录功能[=编号]；优化使用体验
-# 致谢：ChatGPT v3.5，Github Copilot
-# 2024-4-1 v5.2 (Release 1.0) 全新的[S]搜索功能，臻品打造，全面重构了代码，完善了相应功能，优化了用户体验
-# 2024-4-2 v5.2.1 (Release 1.0.1) fix some bugs ; 2024-4-3 fix some bugs ; 2024-4-4 增加健康报告[H]功能，优化主界面显示，fix bugs ; 2024-4-5 fix bugs
-
 # This code is authored by azhan.
 
-# 为了兼容Python 3.8
-from __future__ import annotations
-
 import os
+import asyncio
+import subprocess
 import re
 import sys
 import json
 import time
 from packaging.version import Version
 from glob import glob
-from typing import Union
-import ColorStr
+from typing import Dict, List, Union
+from ColorStr import *
 from prettytable import PrettyTable
 from MyTools import (
-    printlen,
+    get_cluster_size_windows,
+    len_to_print,
     version_parse,
     clear_lines_above,
     get_version_constraints_units,
@@ -79,14 +58,60 @@ source_priority_table = {
 }
 
 
-def pkgs_index_last_update_time():
-    pkg_cache_path = os.path.join(CONDA_HOME, "pkgs", "cache")
-    lastupdate_time = 0
-    if glob_res := glob(os.path.join(pkg_cache_path, "*.json")):
-        for i in glob_res:
-            if os.path.getmtime(i) > lastupdate_time:
-                lastupdate_time = os.path.getmtime(i)
-    return lastupdate_time
+class CacheManager:
+    # 一般程序存放用户数据文件的路径，但不需要弄这么复杂，直接放在脚本同目录下即可
+    # cache_filename = os.path.split(__file__)[1].replace(".py", ".cache")
+    # if os.name == "nt":
+    #     localappdata = os.environ["LOCALAPPDATA"]
+    #     program_self_name = os.path.splitext(cache_filename)[0]
+    #     program_self_cache_home = os.path.join(localappdata, program_self_name)
+    #     if not os.path.exists(program_self_cache_home):
+    #         os.mkdir(program_self_cache_home)
+    #     cache_file = os.path.join(program_self_cache_home, cache_filename)
+    # else: # os.name == "posix":
+    #     localshare = os.path.join(USER_HOME, ".local", "share")
+    #     program_self_name = os.path.splitext(cache_filename)[0]
+    #     program_self_cache_home = os.path.join(localshare, program_self_name)
+    #     if not os.path.exists(program_self_cache_home):
+    #         os.mkdir(program_self_cache_home)
+    #     cache_file = os.path.join(program_self_cache_home, cache_filename)
+    cache_file = __file__.replace(".py", ".cache")
+
+    def __init__(self):
+        self._all_caches = self._load_cache()
+        self.env_info_caches = self._all_caches.get(CONDA_HOME, {})
+
+    def _load_cache(self):
+        try:
+            with open(self.cache_file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            os.remove(self.cache_file)
+            return {}
+        except:
+            return {}
+
+    def _write_cache(self):
+        self._all_caches[CONDA_HOME] = self.env_info_caches
+        with open(self.cache_file, "w", encoding="utf-8") as f:
+            json.dump(self._all_caches, f)
+
+    def get_cache(self, key):
+        return self.env_info_caches.get(key, {})
+
+    def update_cache(self, key, value):
+        self.env_info_caches[key] = value
+        self._write_cache()
+
+
+# def pkgs_index_last_update_time():
+#     pkg_cache_path = os.path.join(CONDA_HOME, "pkgs", "cache")
+#     lastupdate_time = 0
+#     if glob_res := glob(os.path.join(pkg_cache_path, "*.json")):
+#         for i in glob_res:
+#             if os.path.getmtime(i) > lastupdate_time:
+#                 lastupdate_time = os.path.getmtime(i)
+#     return lastupdate_time
 
 
 def filter_and_sort_sources_by_priority(
@@ -150,7 +175,7 @@ def get_valid_input(prompt: str, condition_func, error_msg_func=None, max_errors
     """
     error_count = 0
     if error_msg_func is None:
-        error_msg_func = lambda input_str: f"输入错误{ColorStr.LIGHT_RED(error_count)}次，请重新输入: "
+        error_msg_func = lambda input_str: f"输入错误{LIGHT_RED(error_count)}次，请重新输入: "
     inp = input(prompt)
     while not condition_func(inp):
         error_count += 1
@@ -160,7 +185,7 @@ def get_valid_input(prompt: str, condition_func, error_msg_func=None, max_errors
             clear_lines_above(prompt.count("\n") + 1 + error_msg_func(inp).count("\n") + 1)
         print(error_msg_func(inp))
         if error_count > max_errors:
-            print(f"输入错误达到最大次数({ColorStr.LIGHT_RED(max_errors)})，程序退出")
+            print(f"输入错误达到最大次数({LIGHT_RED(max_errors)})，程序退出")
             sys.exit(1)
         inp = input(prompt)
     if error_count > 0:
@@ -169,22 +194,73 @@ def get_valid_input(prompt: str, condition_func, error_msg_func=None, max_errors
     return inp
 
 
+def get_pyvers_from_paths(pypathlist: list[str]) -> list[str | None]:
+    sem = asyncio.Semaphore(5)
+    if os.name == "nt":
+        import win32api
+
+        def get_file_version(file_path):
+            try:
+                info = win32api.GetFileVersionInfo(file_path, "\\")
+                # 提取版本号
+                file_version = f"{info['FileVersionMS'] // 65536}.{info['FileVersionMS'] % 65536}.{info['FileVersionLS'] // 65536}.{info['FileVersionLS'] % 65536}"
+                return file_version
+            except Exception as e:
+                print(f"Error: {e}")
+                return ""
+
+    async def get_pyver(pypath):
+        if not os.path.exists(pypath):
+            return None
+        if os.name == "nt" and (
+            match := re.match(r"(\d\.\d{1,2}\.\d{1,2})150\.1013", get_file_version(pypath))
+        ):
+            return match.group(1)
+        if os.name == "nt":
+            probable_env_path = os.path.dirname(pypath)
+        else:  # os.name == "posix":
+            probable_env_path = os.path.dirname(os.path.dirname(pypath))
+        if os.path.exists(conda_meta_path := os.path.join(probable_env_path, "conda-meta")):
+            if glob_res := glob(os.path.join(conda_meta_path, "python-*.json")):
+                for i in glob_res:
+                    if match := re.search(r"python-(\d\.\d{1,2}\.\d{1,2})", i):
+                        return match[1]
+        async with sem:
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    pypath,
+                    "--version",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+                stdout, _ = await proc.communicate()
+                return stdout.decode().split()[1]
+            except:
+                return None
+
+    async def main():
+        tasks = [get_pyver(pypath) for pypath in pypathlist]
+        return await asyncio.gather(*tasks)
+
+    return asyncio.run(main())
+
+
 def get_conda_home(detect_mode=False):
-    available_conda_home = []
+    available_conda_homes = []
     if os.name == "nt":
         # 获取ProgramData路径
         progradata_path = os.environ["ProgramData"]
         for i in allowed_release_names:
             if i == "CONDA_PREFIX" and "CONDA_PREFIX" in os.environ:
-                available_conda_home.append(os.environ["CONDA_PREFIX"])
+                available_conda_homes.append(os.environ["CONDA_PREFIX"])
                 if not detect_mode:
                     break
             elif os.path.exists(os.path.join(USER_HOME, i, "conda-meta")):
-                available_conda_home.append(os.path.join(USER_HOME, i))
+                available_conda_homes.append(os.path.join(USER_HOME, i))
                 if not detect_mode:
                     break
             elif os.path.exists(os.path.join(progradata_path, i, "conda-meta")):
-                available_conda_home.append(os.path.join(progradata_path, i))
+                available_conda_homes.append(os.path.join(progradata_path, i))
                 if not detect_mode:
                     break
         else:
@@ -218,7 +294,7 @@ def get_conda_home(detect_mode=False):
                                     shortcut_path = os.path.join(path, k)
                                     arguments = get_shortcut_arguments(shortcut_path)
                                     if arguments is not None:
-                                        available_conda_home.append(arguments.split()[-1])
+                                        available_conda_homes.append(arguments.split()[-1])
                                         is_find = True
                                         if not detect_mode:
                                             break
@@ -259,7 +335,7 @@ def get_conda_home(detect_mode=False):
                                         shortcut_path = os.path.join(path, k)
                                         arguments = get_shortcut_arguments(shortcut_path)
                                         if arguments is not None:
-                                            available_conda_home.append(arguments.split()[-1])
+                                            available_conda_homes.append(arguments.split()[-1])
                                             is_find = True
                                             if not detect_mode:
                                                 break
@@ -268,19 +344,24 @@ def get_conda_home(detect_mode=False):
     else:
         for i in allowed_release_names:
             if i == "CONDA_PREFIX" and "CONDA_PREFIX" in os.environ:
-                available_conda_home.append(os.environ["CONDA_PREFIX"])
+                available_conda_homes.append(os.environ["CONDA_PREFIX"])
                 if not detect_mode:
                     break
             elif os.path.exists(os.path.join(USER_HOME, i, "conda-meta")):
-                available_conda_home.append(os.path.join(USER_HOME, i))
+                available_conda_homes.append(os.path.join(USER_HOME, i))
                 if not detect_mode:
                     break
             elif os.path.exists(os.path.join("root", i, "conda-meta")):
-                available_conda_home.append(os.path.join("root", i))
+                available_conda_homes.append(os.path.join("root", i))
                 if not detect_mode:
                     break
 
-    return available_conda_home
+    if len(available_conda_homes) > 1:
+        available_conda_homes_raw = available_conda_homes.copy()
+        available_conda_homes = list(set(available_conda_homes_raw))
+        available_conda_homes.sort(key=available_conda_homes_raw.index)
+
+    return available_conda_homes
 
 
 def detect_conda_mamba_infos(conda_home: str):
@@ -312,18 +393,32 @@ def detect_conda_mamba_infos(conda_home: str):
     return is_mamba, mamba_version, libmamba_solver_version, conda_version
 
 
+def should_show_other_envs(other_envs: list[str]):
+    is_changed = False
+    last_other_envs = cache_manager.get_cache("other_envs")
+    is_changed = set(other_envs) != set(last_other_envs)
+    if is_changed:
+        available_conda_homes = get_conda_home(detect_mode=True)
+        cache_manager.update_cache("other_envs", other_envs)
+    else:
+        available_conda_homes = [CONDA_HOME]
+
+    return is_changed, available_conda_homes
+
+
 def detect_conda_installation(prior_release_name: str = ""):
     global allowed_release_names
     if prior_release_name != "" and prior_release_name in allowed_release_names:
         allowed_release_names.insert(0, prior_release_name)
 
-    available_conda_home = get_conda_home()
+    available_conda_homes = get_conda_home()
     # 判断是否安装了conda/mamba
-    if len(available_conda_home) == 0:
-        print(ColorStr.LIGHT_RED("未检测到conda/mamba的安装，请先安装conda/mamba后再运行此脚本！"))
+    if len(available_conda_homes) == 0:
+        print(LIGHT_RED("未检测到conda/mamba的安装，请先安装conda/mamba后再运行此脚本！"))
         return "error", False, None, None, None
     else:
-        conda_home = available_conda_home[0]
+        conda_home = available_conda_homes[0]
+
     is_mamba, mamba_version, libmamba_solver_version, conda_version = detect_conda_mamba_infos(
         conda_home
     )
@@ -331,10 +426,17 @@ def detect_conda_installation(prior_release_name: str = ""):
 
 
 CONDA_HOME, IS_MAMBA, MAMBA_VERSION, LIBMAMBA_SOLVER_VERSION, CONDA_VERSION = detect_conda_installation()
+CONDA_EXE_PATH = (
+    os.path.join(CONDA_HOME, "Scripts", "conda.exe")
+    if os.name == "nt"
+    else os.path.join(CONDA_HOME, "bin", "conda")
+)
+
+cache_manager = CacheManager()
 
 
-# 检测是否启用了libmamba求解器
 def detect_conda_libmamba_solver_enabled():
+    """检测是否启用了libmamba求解器"""
     if not LIBMAMBA_SOLVER_VERSION:
         return False
     user_condarc_path = os.path.join(USER_HOME, ".condarc")
@@ -362,58 +464,562 @@ def detect_conda_libmamba_solver_enabled():
     return False
 
 
-def get_linux_activation_cmd(conda_home: str, is_mamba: bool):
-    return f"""__conda_setup="$({os.path.join(CONDA_HOME, 'bin', 'conda')} 'shell.bash' 'hook' 2> /dev/null)"
-    if [ $? -eq 0 ]; then
-        eval "$__conda_setup"
+def get_linux_activation_shell_cmd():
+    return f"""
+    if [ -f "{os.path.join(CONDA_HOME, 'etc', 'profile.d', 'conda.sh')}" ]; then
+        . "{os.path.join(CONDA_HOME, 'etc', 'profile.d', 'conda.sh')}"
     else
-        if [ -f "{os.path.join(CONDA_HOME, 'etc', 'profile.d', 'conda.sh')}" ]; then
-            . "{os.path.join(CONDA_HOME, 'etc', 'profile.d', 'conda.sh')}"
-        else
-            export PATH="{os.path.join(CONDA_HOME, 'bin')}:$PATH"
-        fi
+        export PATH="{os.path.join(CONDA_HOME, 'bin')}:$PATH"
     fi
-    unset __conda_setup
 
     if [ -f "{os.path.join(CONDA_HOME, 'etc', 'profile.d', 'mamba.sh')}" ]; then
         . "{os.path.join(CONDA_HOME, 'etc', 'profile.d', 'mamba.sh')}"
     fi """
 
 
-def get_cmd(cmdlist: list, discard_stderr=False):
+def get_cmd(cmdlist: list):
     if not IS_MAMBA:
         cmdlist = [i.replace("mamba", "conda", 1) if i.startswith("mamba") else i for i in cmdlist]
 
     if os.name == "nt":
-        cmd = f'%windir%\\system32\\cmd.exe /C "{os.path.join(CONDA_HOME,"Scripts","activate.bat")} {CONDA_HOME} '
+        cmd = f'"{os.path.join(CONDA_HOME,"Scripts","activate.bat")}"'
         for i in cmdlist:
-            cmd += f"&& {i}"
-            if discard_stderr:
-                cmd += " 2> nul"
-        cmd += '"'
+            cmd += f" && {i}"
+        if not "".join(cmdlist).isascii():
+            output = subprocess.run("chcp", capture_output=True, shell=True, text=True).stdout
+            now_codepage = re.search(r"\d+", output).group(0)  # type: ignore
+            echo_lines = f"({'&'.join(['echo.']*30)})"  # Only work for Windows Terminal
+            cmd = f"{echo_lines} && chcp 65001 && " + cmd + f" && {echo_lines} && chcp {now_codepage}"
+
     else:
-        LINUX_ACTIVATION_CMD = get_linux_activation_cmd(CONDA_HOME, IS_MAMBA)
-        cmd = LINUX_ACTIVATION_CMD
+        LINUX_ACTIVATION_CMD = get_linux_activation_shell_cmd()
+        cmd = LINUX_ACTIVATION_CMD + " && conda activate"
         for i in cmdlist:
-            cmd += f"&& {i}"
-            if discard_stderr:
-                cmd += " 2> /dev/null"
+            cmd += f" && {i}"
 
     return cmd
 
 
-def get_all_env(is_print=True):
-    # 获取所有环境的名称
+def _get_envpath_last_modified_time(name: str, path: str, pyver: str):
+    """获取环境的最后修改时间(conda , pip)，用于判断是否需要重新计算环境大小"""
+    conda_meta_path = os.path.join(path, "conda-meta")
     if os.name == "nt":
-        with os.popen(
-            f"{os.path.join(CONDA_HOME,'Scripts','mamba.exe' if IS_MAMBA else 'conda.exe')} env list"
-        ) as f:
-            env_output = [l + "\n" for l in f.buffer.read().decode("utf-8").splitlines()]
+        site_packages_path = os.path.join(path, "Lib", "site-packages")
+    else:  # os.name == "posix":
+        site_packages_path = os.path.join(
+            path, "lib", f"python{'.'.join(pyver.split('.')[:2])}", "site-packages"
+        )
+    if name == "base":
+        pkgs_path = os.path.join(path, "pkgs")
+        pkgs_mtime = os.path.getmtime(pkgs_path) if os.path.exists(pkgs_path) else 0
     else:
-        with os.popen(
-            f"{os.path.join(CONDA_HOME,'bin','mamba' if IS_MAMBA else 'conda')} env list"
-        ) as f:
-            env_output = f.readlines()
+        pkgs_mtime = os.path.getmtime(path) if os.path.exists(path) else 0
+
+    conda_meta_mtime = os.path.getmtime(conda_meta_path) if os.path.exists(conda_meta_path) else 0
+    site_packages_mtime = (
+        os.path.getmtime(site_packages_path) if os.path.exists(site_packages_path) else 0
+    )
+    return max(pkgs_mtime, conda_meta_mtime), site_packages_mtime
+
+
+def _get_env_totalsize_list(pathlist: list[str]):
+    sem = asyncio.Semaphore(8)
+
+    async def get_folder_size_with_semaphore(path):
+        async with sem:
+            return await asyncio.to_thread(get_folder_size, path)
+
+    async def get_sizes_async():
+        tasks = [get_folder_size_with_semaphore(path) for path in pathlist]
+        return await asyncio.gather(*tasks)
+
+    return asyncio.run(get_sizes_async())
+
+
+def _get_envsizes_linux(pathlist):
+    disk_usage = 0
+    real_usage_list = [0] * len(pathlist)
+
+    dirs = []
+    for direntry in os.scandir(CONDA_HOME):
+        if direntry.is_dir() and direntry.name != "envs":
+            dirs.append(direntry.path)
+        elif direntry.is_file():
+            disk_usage += direntry.stat().st_size
+    for direntry in os.scandir(os.path.join(CONDA_HOME, "envs")):
+        if direntry.is_dir():
+            dirs.append(direntry.path)
+        elif direntry.is_file():
+            disk_usage += direntry.stat().st_size
+    # print(dirs)
+    command = ["du", "-cd", "0", *dirs]
+    du_result = subprocess.run(command, capture_output=True, text=True).stdout
+    lines = du_result.splitlines()
+    disk_usage = int(lines[-1].strip().split("\t")[0]) * 1024
+
+    conda_envs_path = os.path.join(CONDA_HOME, "envs")
+    for line in lines[:-1]:
+        size, path = line.strip().split("\t")
+        size = int(size) * 1024
+
+        if path.startswith(conda_envs_path):
+            if path in pathlist:
+                real_usage_list[pathlist.index(path)] = size
+
+    base_index = pathlist.index(CONDA_HOME)
+    real_usage_list[base_index] = disk_usage - sum(real_usage_list)
+
+    total_size_list = _get_env_totalsize_list(pathlist[:base_index] + pathlist[base_index + 1 :])
+    total_size_list.insert(base_index, real_usage_list[base_index])
+
+    return real_usage_list, total_size_list, disk_usage
+
+
+ENV_SIZE_CALC_ENABLED_WIN = False
+
+
+def _get_envsizes_windows(pathlist):
+    global ENV_SIZE_CALC_ENABLED_WIN
+    if not ENV_SIZE_CALC_ENABLED_WIN:
+        return [0] * len(pathlist), [0] * len(pathlist), 0
+
+    from threading import Lock
+    import concurrent.futures
+
+    ENV_SIZE_CALC_ENABLED_WIN = False
+
+    real_usage_list = [0] * len(pathlist)
+    total_size_list = [0] * len(pathlist)
+    path_corresponding_index = {path: idx for idx, path in enumerate(pathlist)}
+    seen_inodes = set()
+    walker = os.walk(CONDA_HOME, followlinks=True)  # followlinks=True为了避免islink()判断，提高速度
+    root, dirs, nondirs = next(walker)
+    dirs.append(dirs.pop(dirs.index("envs")))
+
+    lock = Lock()
+    conda_envs_path = os.path.join(CONDA_HOME, "envs")
+    cluster_size = get_cluster_size_windows(CONDA_HOME)
+
+    def get_disk_usage(root, _, nondirs):
+        for f in nondirs:
+            try:
+                stat = os.lstat(root + os.sep + f)
+                size = stat.st_size
+                inode = stat.st_ino
+            except OSError:
+                size = 0
+                inode = 0
+
+            if size > 300:  # 估算，存在误差
+                usage = (size + cluster_size - 1) // cluster_size * cluster_size  # 按簇向上对齐
+            else:
+                usage = 0  # 由于NTFS对过小的文件直接保存在MFT中，不占用簇
+            # progress_bar.add_count()
+
+            if root.startswith(conda_envs_path) and len(root) > len(conda_envs_path):
+                suffix = root[len(conda_envs_path) + 1 :]
+                env_name = suffix.split(os.sep)[0]
+                env_path = conda_envs_path + os.sep + env_name
+                with lock:
+                    total_size_list[path_corresponding_index[env_path]] += size
+                    if inode not in seen_inodes:
+                        seen_inodes.add(inode)
+                        real_usage_list[path_corresponding_index[env_path]] += usage
+            else:
+                with lock:
+                    total_size_list[path_corresponding_index[CONDA_HOME]] += size
+                    if inode not in seen_inodes:
+                        seen_inodes.add(inode)
+                        real_usage_list[path_corresponding_index[CONDA_HOME]] += usage
+
+    get_disk_usage(root, dirs, nondirs)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        for one_walk in walker:
+            executor.submit(get_disk_usage, *one_walk)
+    disk_usage = sum(real_usage_list)
+
+    return real_usage_list, total_size_list, disk_usage
+
+
+def get_home_sizes(namelist: list[str], pathlist: list[str], pyverlist: list[str]):
+    envs_size_cache = cache_manager.get_cache("envs_size_cache")
+    last_env_sizes = envs_size_cache.get("env_sizes", {})
+    disk_usage = envs_size_cache.get("disk_usage", 0)
+
+    name_sizes_dict = {}
+
+    namelist_changed = []
+    pathlist_changed = []
+    timestamplist_changed = []
+    re_calc_all = False
+    for name, path, pyver in zip(namelist, pathlist, pyverlist):
+        c_conda_mtime, c_pip_mtime = _get_envpath_last_modified_time(name, path, pyver)
+        if name not in last_env_sizes or c_conda_mtime != last_env_sizes[name]["conda_mtime"]:
+            namelist_changed.append(name)
+            pathlist_changed.append(path)
+            timestamplist_changed.append({"conda_mtime": c_conda_mtime, "pip_mtime": c_pip_mtime})
+            re_calc_all = True
+            break
+        elif c_pip_mtime != last_env_sizes[name]["pip_mtime"]:
+            namelist_changed.append(name)
+            pathlist_changed.append(path)
+            timestamplist_changed.append({"conda_mtime": c_conda_mtime, "pip_mtime": c_pip_mtime})
+            if name == "base":
+                re_calc_all = True
+                break
+        else:
+            name_sizes_dict[name] = {
+                "real_usage": last_env_sizes[name]["real_usage"],
+                "total_size": last_env_sizes[name]["total_size"],
+                "conda_mtime": c_conda_mtime,
+                "pip_mtime": c_pip_mtime,
+            }
+
+    if not namelist_changed and not re_calc_all:
+        return name_sizes_dict, disk_usage
+
+    print(f"{LIGHT_YELLOW('[提示]')} 正在计算环境大小，请稍等...")
+
+    if re_calc_all:
+        name_sizes_dict.clear()
+        if os.name == "posix":
+            real_usage_list, total_size_list, disk_usage = _get_envsizes_linux(pathlist)
+        else:  # os.name == "nt":
+            real_usage_list, total_size_list, disk_usage = _get_envsizes_windows(pathlist)
+
+        if disk_usage:
+            for name, real_usage, total_size in zip(namelist, real_usage_list, total_size_list):
+                c_conda_mtime, c_pip_mtime = _get_envpath_last_modified_time(
+                    name, pathlist[namelist.index(name)], pyverlist[namelist.index(name)]
+                )
+                name_sizes_dict[name] = {
+                    "real_usage": real_usage,
+                    "total_size": total_size,
+                    "conda_mtime": c_conda_mtime,
+                    "pip_mtime": c_pip_mtime,
+                }
+        else:  # (此情况应仅限Windows)未获取磁盘使用量，重置所有环境的大小
+            for name in namelist:
+                name_sizes_dict[name] = {
+                    "real_usage": 0,
+                    "total_size": 0,
+                    "conda_mtime": 0,
+                    "pip_mtime": 0,
+                }
+    else:
+        total_size_list = _get_env_totalsize_list(pathlist_changed)
+
+        for idx, name in enumerate(namelist_changed):
+            last_total_size = last_env_sizes[name]["total_size"]
+            total_size = total_size_list[idx]
+            diff_size = total_size - last_total_size
+            real_usage = last_env_sizes[name]["real_usage"] + diff_size
+            name_sizes_dict[name] = {
+                "real_usage": real_usage,
+                "total_size": total_size,
+                "conda_mtime": timestamplist_changed[idx]["conda_mtime"],
+                "pip_mtime": timestamplist_changed[idx]["pip_mtime"],
+            }
+
+    envs_size_cache.update({"env_sizes": name_sizes_dict, "disk_usage": disk_usage})
+    cache_manager.update_cache("envs_size_cache", envs_size_cache)
+
+    clear_lines_above(1)
+    return name_sizes_dict, disk_usage
+
+
+def get_env_last_updated_time(path: str, pyver: str):
+    """获取环境的最后更新时间，检查conda及pip的安装行为，用于env_lastmodified_timelist"""
+    meta_history_path = os.path.join(path, "conda-meta", "history")
+    if os.name == "nt":
+        site_packages_path = os.path.join(path, "Lib", "site-packages")
+    else:  # os.name == "posix":
+        site_packages_path = os.path.join(
+            path, "lib", f"python{'.'.join(pyver.split('.')[:2])}", "site-packages"
+        )
+    t1 = os.path.getmtime(meta_history_path) if os.path.exists(meta_history_path) else 0
+    t2 = os.path.getmtime(site_packages_path) if os.path.exists(site_packages_path) else 0
+    return max(t1, t2)
+
+
+def _get_env_basic_infos():
+    env_output = subprocess.run(
+        [CONDA_EXE_PATH, "env", "list", "--json"], capture_output=True, text=True
+    ).stdout
+    env_list_raw = json.loads(env_output).get("envs", [])
+
+    env_namelist = []
+    env_pathlist = []
+    others_env_pathlist = []
+
+    for env_path in env_list_raw:
+        if env_path == CONDA_HOME:
+            env_namelist.append("base")
+            env_pathlist.append(CONDA_HOME)
+        elif env_path.startswith(os.path.join(CONDA_HOME, "envs")):
+            env_namelist.append(os.path.split(env_path)[1])
+            env_pathlist.append(env_path)
+        else:
+            others_env_pathlist.append(env_path)
+
+    return env_namelist, env_pathlist, others_env_pathlist
+
+
+def get_env_infos():
+    # 获取所有环境的基本信息
+    env_namelist, env_pathlist, others_env_pathlist = _get_env_basic_infos()
+    env_num = len(env_namelist)
+    # 获取所有环境的Python版本并存入env_pyverlist
+    env_pypathlist = [
+        os.path.join(i, "python.exe") if os.name == "nt" else os.path.join(i, "bin", "python")
+        for i in env_pathlist
+    ]
+    env_pyverlist = [i if i else "-" for i in get_pyvers_from_paths(env_pypathlist)]
+    env_lastmodified_timelist = [
+        time.strftime(
+            "%Y-%m-%d",
+            time.gmtime(get_env_last_updated_time(path, pyver)),
+        )
+        for path, pyver in zip(env_pathlist, env_pyverlist)
+    ]
+    env_installation_time_list = []
+    for i in env_pathlist:
+        with open(os.path.join(i, "conda-meta", "history"), "r", encoding="utf-8") as f:
+            lines = f.readlines()
+            for line in lines:
+                if line.startswith("==>"):
+                    if match := re.search(r"\d{4}-\d{2}-\d{2}", line):
+                        env_installation_time_list.append(match.group(0))
+                        break
+            else:
+                env_installation_time_list.append("Unknown")
+
+    name_sizes_dict, disk_usage = get_home_sizes(env_namelist, env_pathlist, env_pyverlist)
+    env_realusage_list = [name_sizes_dict[i]["real_usage"] for i in env_namelist]
+    env_totalsize_list = [name_sizes_dict[i]["total_size"] for i in env_namelist]
+    total_apparent_size = sum(env_totalsize_list)
+
+    assert (
+        len(env_namelist)
+        == len(env_pyverlist)
+        == len(env_lastmodified_timelist)
+        == len(env_installation_time_list)
+        == len(env_pathlist)
+        == len(env_realusage_list)
+        == len(env_totalsize_list)
+    )
+
+    env_infos_dict = {
+        "env_num": env_num,  # int
+        "disk_usage": disk_usage,  # int
+        "total_apparent_size": total_apparent_size,  # int
+        "env_namelist": env_namelist,  # list[str]
+        "env_pathlist": env_pathlist,  # list[str]
+        "env_lastmodified_timelist": env_lastmodified_timelist,  # list[str]
+        "env_installation_time_list": env_installation_time_list,  # list[str]
+        "env_pyverlist": env_pyverlist,  # list[str]
+        "env_realusage_list": env_realusage_list,  # list[int]
+        "env_totalsize_list": env_totalsize_list,  # list[int]
+        "others_env_pathlist": others_env_pathlist,  # list[str]
+    }
+    return env_infos_dict
+
+
+def prompt_and_validate_input(prefix_str, askstr, allow_input=None):
+    def _to_print(print_str, is_clear_lines_above=False):
+        if is_clear_lines_above:
+            clear_lines_above(2)
+        print(print_str + ",以回车结束:")
+
+    _to_print(prefix_str + "请输入" + askstr)
+    inp = input(">>> ")
+    # 判断输入是否合法，不合法则重新输入
+    if allow_input is not None:
+        error_count = 0
+        while inp not in allow_input:
+            error_count += 1
+            if error_count > 5:
+                clear_lines_above(2)
+                print(RED(f"输入错误次数({error_count})过多，已退出！"))
+                sys.exit(1)
+            _to_print(
+                f"{prefix_str}输入错误({RED(error_count)})次!请重新输入{askstr}",
+                True,
+            )
+            inp = input(">>> ")
+
+    return inp
+
+
+def get_envs_prettytable(env_infos_dict):
+
+    env_num = env_infos_dict["env_num"]
+    disk_usage = env_infos_dict["disk_usage"]
+    total_apparent_size = env_infos_dict["total_apparent_size"]
+    env_namelist = env_infos_dict["env_namelist"]
+    env_lastmodified_timelist = env_infos_dict["env_lastmodified_timelist"]
+    env_installation_time_list = env_infos_dict["env_installation_time_list"]
+    env_pyverlist = env_infos_dict["env_pyverlist"]
+    env_realusage_list = env_infos_dict["env_realusage_list"]
+    env_totalsize_list = env_infos_dict["env_totalsize_list"]
+
+    _max_name_length = max((len(i) for i in env_namelist), default=0)
+    _max_name_length = max(
+        _max_name_length, len("Env Name") + 7
+    )  # 让max_name_length过短的情况也能正常显示
+
+    table = PrettyTable()
+    fieldstr_Number = "No."
+    fieldstr_EnvName = (
+        "Env Name"
+        + " " * (_max_name_length + 11 - (len("Env Name" + "(Python Version)")))
+        + "(Python Version)"
+    )
+    fieldstr_LastUpdated_Installation = "Last Updated/Installation"
+    fieldstr_Usage = "+Usage  (%)"
+    fieldstr_Size = "Size  (%)"
+
+    table.field_names = [
+        fieldstr_Number,
+        fieldstr_EnvName,
+        fieldstr_LastUpdated_Installation,
+        fieldstr_Usage,
+        fieldstr_Size,
+    ]
+    table.align = "l"
+    table.align[fieldstr_LastUpdated_Installation] = "c"  # type: ignore
+    table.align[fieldstr_Usage] = "r"  # type: ignore
+    table.align[fieldstr_Size] = "r"  # type: ignore
+    table.border = False
+    table.padding_width = 1
+    # table.hrules = HEADER
+
+    def _format_pyver(pyver: str):
+        try:
+            major, minor, patch = pyver.split(".")
+            return f"{major}.{minor:>2}.{patch:>2}"
+        except:
+            return pyver
+
+    for i in range(env_num):
+        table.add_row(
+            [
+                f"[{str(i + 1)}]",
+                env_namelist[i]
+                + " " * (_max_name_length - len_to_print(env_namelist[i]) + 2)
+                + f"({_format_pyver(env_pyverlist[i]):^7s})",
+                f"{env_lastmodified_timelist[i]} / {env_installation_time_list[i]}",
+                (
+                    f"+{print_fsize_smart(env_realusage_list[i],precision=2,B_suffix=False):>5} ({env_realusage_list[i]/disk_usage*100:>2.0f})"
+                    if env_realusage_list[i] > 0
+                    else f"{'-':^11}"
+                ),
+                (
+                    f"{print_fsize_smart(env_totalsize_list[i],precision=2,B_suffix=False):>5} ({env_totalsize_list[i]/total_apparent_size*100:>2.0f})"
+                    if env_totalsize_list[i] > 0
+                    else f"{'-':^11}"
+                ),
+            ]
+        )
+
+    return table
+
+
+def _print_header(table_width, disk_usage):
+    def _get_header_str():
+        header_str = " ("
+        if IS_MAMBA:
+            header_str += "mamba "
+            if MAMBA_VERSION:
+                header_str += f"{LIGHT_GREEN(MAMBA_VERSION)}"
+            else:
+                header_str += LIGHT_GREEN("supported".upper())
+            header_str += ", "
+        header_str += "conda "
+        if CONDA_VERSION and Version(CONDA_VERSION) >= Version("23.10"):
+            header_str += f'{LIGHT_GREEN(f"{CONDA_VERSION}")}'
+        elif CONDA_VERSION and Version(CONDA_VERSION) >= Version("22.12"):
+            header_str += f'{LIGHT_YELLOW(f"{CONDA_VERSION}")}'
+        elif CONDA_VERSION:
+            header_str += f'{YELLOW(f"{CONDA_VERSION}")}'
+        else:
+            header_str += LIGHT_RED("NO")
+        if not IS_MAMBA:
+            header_str += ", lib-mamba "
+            if LIBMAMBA_SOLVER_VERSION and Version(LIBMAMBA_SOLVER_VERSION) >= Version("23.9"):
+                header_str += f'{LIGHT_GREEN(f"{LIBMAMBA_SOLVER_VERSION}")}'
+            elif LIBMAMBA_SOLVER_VERSION:
+                header_str += f'{YELLOW(f"{LIBMAMBA_SOLVER_VERSION}")}'
+            else:
+                header_str += LIGHT_RED("NO")
+            if LIBMAMBA_SOLVER_VERSION:
+                header_str += " "
+                if detect_conda_libmamba_solver_enabled():
+                    header_str += LIGHT_GREEN("Used")
+                else:
+                    header_str += LIGHT_RED("Not Used")
+                header_str += ""
+        header_str += ")"
+        return header_str
+
+    print_str = "# " + BOLD(os.path.split(CONDA_HOME)[1].capitalize()) + _get_header_str()
+    print_diskusage = BOLD(f"[Disk Usage: {print_fsize_smart(disk_usage)}]")
+    print(
+        print_str
+        + " " * (table_width - len_to_print(print_str) - len_to_print(print_diskusage))
+        + print_diskusage
+    )
+
+
+def _print_envs_table(table):
+    # 格式化输出环境名称:路径、最后修改时间，并且左对齐,去网格
+    def _print_colorstr_interval(s, i):
+        return LIGHT_YELLOW(s) if i % 2 == 0 else LIGHT_CYAN(s)
+
+    # 输出表格
+    for i, line in enumerate(table.get_string().splitlines()):
+        if i == 0:
+            print(BOLD(line))
+            continue
+        print(_print_colorstr_interval(line, i))
+
+
+def _print_other_envs(others_env_pathlist):
+    show_others, available_conda_homes = should_show_other_envs(others_env_pathlist)
+    if show_others:
+        print(LIGHT_YELLOW("*" * 10), end="")
+        print(LIGHT_YELLOW(f" 目前管理的 Conda 发行版是 {CONDA_HOME} "), end="")
+        print(LIGHT_YELLOW("*" * 10))
+        if len(available_conda_homes) > 1:
+            print(YELLOW("[提示] 检测到多个发行版安装:"))
+            for i, condapath in enumerate(available_conda_homes, 1):
+                if condapath == CONDA_HOME:
+                    print(LIGHT_GREEN(f"[{i}]\t{os.path.split(condapath)[1]}\t{condapath} (当前)"))
+                else:
+                    print(f"[{i}]\t{os.path.split(condapath)[1]}\t{condapath}")
+        if others_env_pathlist:
+            print(
+                YELLOW(
+                    "[提示] 检测到如下其它发行版的环境,或未安装在规范目录(envs)下的环境,将不会被显示与管理:"
+                )
+            )
+            for i, path in enumerate(others_env_pathlist, 1):
+                for condapath in available_conda_homes:
+                    if path.startswith(condapath):
+                        print(f"[{i}]\t{os.path.split(condapath)[1]}\t{path}")
+                        break
+                else:
+                    print(f"[{i}]\t         \t{path}")
+
+        print(LIGHT_YELLOW(f"{' 以上信息仅在不受支持的环境有变化时显示 ':*^55}"))
+        print()
+
+
+def show_info_and_get_input(env_infos_dict):
+    env_num = env_infos_dict["env_num"]
+    disk_usage = env_infos_dict["disk_usage"]
+    others_env_pathlist = env_infos_dict["others_env_pathlist"]
+
     allow_input = [
         "-",
         "+",
@@ -439,251 +1045,52 @@ def get_all_env(is_print=True):
         "h",
         "\x03",
     ]
-    env_num = len(env_output) - 3
-    env_namelist = []
-    env_pathlist = []
-    env_pyverlist = []
-    others_env_namelist = []
-    for i in range(env_num):
-        if len(env_output[int(i) + 2].split()) < 2:
-            env_num -= 1
-            others_env_namelist.append(env_output[int(i) + 2].split()[0])
-            continue
-        else:
-            env_namelist.append(env_output[int(i) + 2].split()[0])
-            env_pathlist.append(env_output[int(i) + 2].split()[-1])
-    env_lastmodified_timelist = [
-        time.strftime(
-            "%Y-%m-%d",
-            time.gmtime(os.path.getmtime(os.path.join(i, "conda-meta", "history"))),
-        )
-        for i in env_pathlist
-    ]
-    env_installation_time_list = []
-    for i in env_pathlist:
-        with open(os.path.join(i, "conda-meta", "history")) as f:
-            lines = f.buffer.read().decode("utf-8").splitlines()
-            for line in lines:
-                if line.startswith("==>"):
-                    if match := re.search(r"\d{4}-\d{2}-\d{2}", line):
-                        env_installation_time_list.append(match.group(0))
-                        break
-            else:
-                env_installation_time_list.append("Unknown")
-    # t0 = time.time()
-    for env_path in env_pathlist:
-        if os.name == "nt":
-            import win32api
-
-            def get_file_version(file_path):
-                try:
-                    info = win32api.GetFileVersionInfo(file_path, "\\")
-                    # 提取版本号
-                    file_version = f"{info['FileVersionMS'] // 65536}.{info['FileVersionMS'] % 65536}.{info['FileVersionLS'] // 65536}.{info['FileVersionLS'] % 65536}"
-                    return file_version
-                except Exception as e:
-                    print(f"Error: {e}")
-                    return ""
-
-            if os.path.exists(py_path := os.path.join(env_path, "python.exe")):
-                if match := re.match(r"(\d\.\d{1,2}\.\d{1,2})150\.1013", get_file_version(py_path)):
-                    env_pyverlist.append(match.group(1))
-                else:
-                    with os.popen(f"{py_path} --version") as f:
-                        result_text = f.buffer.read().decode("utf-8")
-                    match = re.search(r"Python (\d\.\d{1,2}\.\d{1,2})", result_text) or re.search(
-                        r"python (\d\.\d{1,2})\.\d{1,2}", result_text
-                    )
-                    env_pyverlist.append(match.group(1) if match else "Unknown")
-            else:
-                env_pyverlist.append("Unknown")
-        else:
-            if os.path.exists(py_symlimk_path := os.path.join(env_path, "bin", "python")):
-                if glob_res := glob(os.path.join(env_path, "conda-meta", "python-*.json")):
-                    for i in glob_res:
-                        if match := re.search(r"python-(\d\.\d{1,2}\.\d{1,2})", i):
-                            env_pyverlist.append(match[1])
-                            break
-                else:
-                    result_text = os.popen(f"{py_symlimk_path} --version").read()
-                    match = re.search(r"Python (\d\.\d{1,2}\.\d{1,2})", result_text) or re.search(
-                        r"python (\d\.\d{1,2}\.\d{1,2})", result_text
-                    )
-                    env_pyverlist.append(match.group(1) if match else "Unknown")
-            else:
-                env_pyverlist.append("Unknown")
-    # print(f"{time.time()-t0:.4f} s")
-    assert (
-        len(env_namelist)
-        == len(env_pyverlist)
-        == len(env_lastmodified_timelist)
-        == len(env_installation_time_list)
-        == len(env_pathlist)
-    )
-
-    if others_env_namelist:
-        print(
-            ColorStr.YELLOW(
-                f"[提示] 检测到多个发行版安装,目前默认管理的是{os.path.split(CONDA_HOME)[1]},其他发行版的环境{others_env_namelist}将不会被显示！"
-            )
-        )
-
+    if os.name == "nt":
+        allow_input.extend(["d", "D"])
     allow_input.extend(str(i) for i in range(1, env_num + 1))
     allow_input.extend(f"={str(i)}" for i in range(1, env_num + 1))
 
-    print_str = " ("
-    if IS_MAMBA:
-        print_str += "mamba "
-        if MAMBA_VERSION:
-            print_str += f"{ColorStr.LIGHT_GREEN(MAMBA_VERSION)}"
-        else:
-            print_str += ColorStr.LIGHT_GREEN("supported".upper())
-        print_str += ", "
-    print_str += "conda "
-    if CONDA_VERSION and Version(CONDA_VERSION) >= Version("23.10"):
-        print_str += f'{ColorStr.LIGHT_GREEN(f"{CONDA_VERSION}")}'
-    elif CONDA_VERSION and Version(CONDA_VERSION) >= Version("22.12"):
-        print_str += f'{ColorStr.LIGHT_YELLOW(f"{CONDA_VERSION}")}'
-    elif CONDA_VERSION:
-        print_str += f'{ColorStr.YELLOW(f"{CONDA_VERSION}")}'
-    else:
-        print_str += ColorStr.LIGHT_RED("NO")
-    if not IS_MAMBA:
-        print_str += ", conda-libmamba-solver "
-        if LIBMAMBA_SOLVER_VERSION and Version(LIBMAMBA_SOLVER_VERSION) >= Version("23.9"):
-            print_str += f'{ColorStr.LIGHT_GREEN(f"{LIBMAMBA_SOLVER_VERSION}")}'
-        elif LIBMAMBA_SOLVER_VERSION:
-            print_str += f'{ColorStr.YELLOW(f"{LIBMAMBA_SOLVER_VERSION}")}'
-        else:
-            print_str += ColorStr.LIGHT_RED("NO")
-        if LIBMAMBA_SOLVER_VERSION:
-            print_str += " ["
-            if detect_conda_libmamba_solver_enabled():
-                print_str += ColorStr.LIGHT_GREEN("Used")
-            else:
-                print_str += ColorStr.LIGHT_RED("Not Used")
-            print_str += "]"
-    print_str += "):"
+    # 1.1 输出<可能的>其他发行版与不受支持的环境
+    _print_other_envs(others_env_pathlist)
 
-    for i in range(len(env_output)):
-        if i == 0:
-            if is_print:
-                print(
-                    env_output[i]
-                    .replace("conda", os.path.split(CONDA_HOME)[1].capitalize())
-                    .replace(":", print_str),
-                    end="",
-                )
-            continue
-        elif len(env_output[i]) < 3:
-            continue
+    table = get_envs_prettytable(env_infos_dict)
+    # 1.2 输出抬头
+    table_width = len_to_print(table.get_string().splitlines()[0].rstrip())
+    _print_header(table_width, disk_usage)
+    # 1.3 输出表格
+    _print_envs_table(table)
 
-    # 格式化输出环境名称:路径、最后修改时间，并且左对齐,去网格
-    def _print_colorstr_interval(s, i):
-        return ColorStr.LIGHT_YELLOW(s) if i % 2 == 0 else ColorStr.LIGHT_CYAN(s)
-
-    _max_name_length = max((len(i) for i in env_namelist), default=0)
-
-    table = PrettyTable()
-    table.field_names = [
-        "No.",
-        "Env Name"
-        + " " * (_max_name_length + 10 - (len("Env Name" + "(Python Version)")))
-        + "(Python Version)",
-        "Last Updated/Installation",
-        "Environment Home",
-    ]
-
-    env_pathlist_toshow = list(map(replace_user_path, env_pathlist))
-    for i in range(env_num):
-        table.add_row(
-            [
-                _print_colorstr_interval(f"[{str(i + 1)}]", i),
-                _print_colorstr_interval(
-                    env_namelist[i]
-                    + " " * (_max_name_length - printlen(env_namelist[i]) + 1)
-                    + f"({env_pyverlist[i]})",
-                    i,
-                ),
-                _print_colorstr_interval(
-                    f"{env_lastmodified_timelist[i]} / {env_installation_time_list[i]}",
-                    i,
-                ),
-                _print_colorstr_interval(env_pathlist_toshow[i], i),
-            ]
+    # 2. 输出主界面提示信息
+    main_prompt_str = f"""
+允许的操作指令如下 (按{YELLOW("[Q]")}以退出):
+    激活环境对应命令行输入编号{LIGHT_YELLOW(f"[1-{env_num}]")};浏览环境主目录输入{LIGHT_GREEN("[=编号]")};
+    删除环境按{RED("[-]")};新建环境按{LIGHT_GREEN("[+]")};重命名环境按{LIGHT_BLUE("[R]")};复制环境按{LIGHT_CYAN("[P]")};
+    对应环境查看并回退至历史版本按{LIGHT_MAGENTA("[V]")};
+    更新指定环境的所有包按{GREEN("[U]")};
+    查看及清空 pip/mamba/conda 缓存按{LIGHT_RED("[C]")};
+    注册 Jupyter 内核按{LIGHT_CYAN("[I]")};显示、管理及清理 Jupyter 内核按{LIGHT_BLUE("[J]")};
+    检查环境完整性并显示健康报告按{LIGHT_GREEN("[H]")};
+    搜索 Conda 软件包按{LIGHT_CYAN("[S]")};"""
+    if os.name == "nt":
+        main_prompt_str += (
+            f"\n    (仅限Windows) 显示环境大小及磁盘占用情况按{LIGHT_GREEN('[D]')};"  # Windows Only
         )
-    table.align = "l"
-    table.border = False
-    table.padding_width = 1
-    # table.hrules = HEADER
-    # table.header = False
-    # table.max_width = {"Env Name": 20, "Environment Home": 50, "Last Updated": 15}
-    if is_print:
-        print(table)
-    env_infolist_dict = {
-        "env_namelist": env_namelist,
-        "env_pathlist": env_pathlist,
-        "env_lastmodified_timelist": env_lastmodified_timelist,
-        "env_installation_time_list": env_installation_time_list,
-        "env_pyverlist": env_pyverlist,
-    }
-    return allow_input, env_infolist_dict, env_num
+    print(main_prompt_str)
+    print()
+
+    # 3. 提示用户输入对应指令
+    return prompt_and_validate_input(prefix_str="", askstr="对应指令", allow_input=allow_input)
 
 
-def ask_to_get_inp(prefix_str, askstr, allow_input=None):
-    def _to_print(print_str, is_clear_lines_above=False):
-        if is_clear_lines_above:
-            clear_lines_above(2)
-        print(print_str + ",以回车结束:")
-
-    _to_print(prefix_str + "请输入" + askstr)
-    inp = input(">>> ")
-    # 判断输入是否合法，不合法则重新输入
-    if allow_input is not None:
-        error_count = 0
-        while inp not in allow_input:
-            error_count += 1
-            if error_count > 5:
-                clear_lines_above(2)
-                print(ColorStr.RED(f"输入错误次数({error_count})过多，已退出！"))
-                sys.exit(1)
-            _to_print(
-                f"{prefix_str}输入错误({ColorStr.RED(error_count)})次!请重新输入{askstr}",
-                True,
-            )
-            inp = input(">>> ")
-
-    return inp
-
-
-def show_info_and_get_input(allow_input, env_num):
-    # 提示用户输入数字
-    print(
-        f"""
-允许的操作指令如下:
-    激活环境对应命令行输入编号{ColorStr.LIGHT_YELLOW(f"[1-{env_num}]")};浏览环境主目录输入{ColorStr.LIGHT_GREEN("[=编号]")};
-    删除环境按{ColorStr.RED("[-]")};新建环境按{ColorStr.LIGHT_GREEN("[+]")};重命名环境按{ColorStr.LIGHT_BLUE("[R]")};复制环境按{ColorStr.LIGHT_CYAN("[P]")};
-    对应环境查看并回退至历史版本按{ColorStr.LIGHT_MAGENTA("[V]")};
-    更新指定环境的所有包按{ColorStr.GREEN("[U]")};
-    查看及清空 pip/mamba/conda 缓存按{ColorStr.LIGHT_RED("[C]")};
-    将指定环境注册到 Jupyter 按{ColorStr.LIGHT_CYAN("[I]")};
-    显示、管理所有已注册的 Jupyter 环境及清理弃用项按{ColorStr.LIGHT_BLUE("[J]")};
-    检查环境完整性并显示健康报告按{ColorStr.LIGHT_GREEN("[H]")};
-    搜索 Conda 软件包按{ColorStr.LIGHT_CYAN("[S]")};
-    退出按{ColorStr.YELLOW("[Q]")};
-    """,
-    )
-    return ask_to_get_inp(prefix_str="", askstr="对应指令", allow_input=allow_input)
-
-
-def do_correct_action(inp, env_infolist_dict, env_num):
+def do_correct_action(inp, env_infos_dict):
     # 根据用户输入的值执行相应的操作,并返回两种状态码，1表示需要继续显示环境列表，0表示正常进入环境
     # 如果输入的是[-]，则删除环境
-    env_namelist = env_infolist_dict["env_namelist"]
-    env_pathlist = env_infolist_dict["env_pathlist"]
-    env_lastmodified_timelist = env_infolist_dict["env_lastmodified_timelist"]
-    env_installation_time_list = env_infolist_dict["env_installation_time_list"]
-    env_pyverlist = env_infolist_dict["env_pyverlist"]
+    env_num = env_infos_dict["env_num"]
+    env_namelist = env_infos_dict["env_namelist"]
+    env_pathlist = env_infos_dict["env_pathlist"]
+    env_lastmodified_timelist = env_infos_dict["env_lastmodified_timelist"]
+    env_installation_time_list = env_infos_dict["env_installation_time_list"]
+    env_pyverlist = env_infos_dict["env_pyverlist"]
 
     def _print_table(envnames, field_name_env="Env Name", color_func=lambda x: x):
         if not envnames:
@@ -724,9 +1131,7 @@ def do_correct_action(inp, env_infolist_dict, env_num):
             env_delete_names = [
                 env_namelist[i] for i in env_delete_nums if env_namelist[i] not in illegal_env_namelist
             ]
-        if not _print_table(
-            env_delete_names, field_name_env="Env to Delete", color_func=ColorStr.LIGHT_RED
-        ):
+        if not _print_table(env_delete_names, field_name_env="Env to Delete", color_func=LIGHT_RED):
             return 1
         print("(2) 确认删除以上环境吗？[y(回车)/n]")
 
@@ -734,22 +1139,17 @@ def do_correct_action(inp, env_infolist_dict, env_num):
         if inp not in ("y", "Y", "\r", "\n", ""):
             return 1
         for i in env_delete_names:
-            command = get_cmd(
-                [
-                    f"mamba remove -n {i} --all --yes --quiet 1>&2",
-                    f"jupyter kernelspec list --json",
-                ]
-            )
-            # os.system(command=command)
-            with os.popen(command) as f:
-                result_text = f.buffer.read().decode("utf-8")
+            command = get_cmd([f"mamba remove -n {i} --all --yes --quiet"])
+            subprocess.run(command, shell=True)
+            command = get_cmd([f"jupyter kernelspec list --json"])
+            result_text = subprocess.run(command, shell=True, stdout=subprocess.PIPE, text=True).stdout
             # 清除可能的Jupyter注册
             try:
                 result_json_dic = json.loads(result_text)
             except:
                 print(
-                    ColorStr.LIGHT_YELLOW(
-                        "[警告] base环境未安装Jupyter,无法管理相关环境的jupyter注册,请在主界面按[J]以安装"
+                    LIGHT_YELLOW(
+                        "[警告] base环境未安装Jupyter,无法管理相关环境的jupyter内核注册,请在主界面按[J]以安装"
                     )
                 )
                 return 1
@@ -758,8 +1158,8 @@ def do_correct_action(inp, env_infolist_dict, env_num):
             )
             if _this_env_pypath and not os.path.exists(_this_env_pypath):
                 command = get_cmd([f"jupyter kernelspec uninstall {i} -y"])
-                os.system(command=command)
-                print(ColorStr.LIGHT_GREEN(f"[提示] 已清除需卸载环境{i}的Jupyter注册"))
+                subprocess.run(command, shell=True)
+                print(LIGHT_GREEN(f"[提示] 已清除需卸载环境{i}的Jupyter内核注册"))
 
         res = 1
     # 如果输入的是[+]，则新建环境
@@ -768,8 +1168,8 @@ def do_correct_action(inp, env_infolist_dict, env_num):
         inp1 = get_valid_input(
             ">>> ",
             lambda x: is_legal_envname(x, env_namelist),
-            lambda input_str: f"新环境名称{ColorStr.LIGHT_CYAN(input_str)}"
-            + ColorStr.LIGHT_RED("已存在或不符合规范")
+            lambda input_str: f"新环境名称{LIGHT_CYAN(input_str)}"
+            + LIGHT_RED("已存在或不符合规范")
             + "，请重新输入: ",
         )
         py_pattern = r"(?:py|pypy|python)[^A-Za-z0-9]{0,2}(\d)\.?(\d{1,2})"
@@ -777,8 +1177,8 @@ def do_correct_action(inp, env_infolist_dict, env_num):
         if py_match:
             inp2 = py_match.group(1) + "." + py_match.group(2)
             print(
-                f"(2)[提示] 检测到环境名称{ColorStr.LIGHT_CYAN(inp1)}符合python环境命名规范,"
-                + ColorStr.LIGHT_GREEN(f"已自动指定python版本={inp2}")
+                f"(2)[提示] 检测到环境名称{LIGHT_CYAN(inp1)}符合python环境命名规范,"
+                + LIGHT_GREEN(f"已自动指定python版本={inp2}")
             )
         else:
             print("(2) 请指定python版本(为空默认最新版)，以回车结束:")
@@ -790,11 +1190,11 @@ def do_correct_action(inp, env_infolist_dict, env_num):
             inp2 = "=" + inp2
         pre_install_pkgs = "numpy pandas matplotlib scipy scikit-learn ipykernel"  # 预安装的包
         print(
-            f"(3) 请指定预安装参数(如{ColorStr.LIGHT_YELLOW('spyder')}包等,{ColorStr.LIGHT_GREEN('-c nvidia')}源等,以空格隔开)，以回车结束:"
+            f"(3) 请指定预安装参数(如{LIGHT_YELLOW('spyder')}包等,{LIGHT_GREEN('-c nvidia')}源等,以空格隔开)，以回车结束:"
         )
         print(
-            ColorStr.LIGHT_YELLOW("[提示]")
-            + f" 如输入了独立的\"{ColorStr.LIGHT_GREEN('--+')}\",则等效于预安装\"{ColorStr.LIGHT_YELLOW(pre_install_pkgs)}\"包(并将该环境注册到用户Jupyter)"
+            LIGHT_YELLOW("[提示]")
+            + f" 若输入\"{LIGHT_GREEN('--+')}\",则等效于预安装\"{LIGHT_YELLOW(pre_install_pkgs)}\"包(并将该环境的Jupyter内核注册到用户)"
         )
         inp3 = input(">>> ")
         is_register_jupyter = False
@@ -803,53 +1203,67 @@ def do_correct_action(inp, env_infolist_dict, env_num):
             is_register_jupyter = True
         command = get_cmd([f"mamba create -n {inp1} python{inp2} {inp3}"])
 
-        cmd_res = os.system(command=command)
+        cmd_res = subprocess.run(command, shell=True).returncode
         # 如果安装不成功则尝试使用更多的源
         if cmd_res != 0:
-            print(ColorStr.LIGHT_RED("安装失败！"))
-            inp = input(ColorStr.LIGHT_YELLOW("(3a) 是否启用更多的源重新安装[(Y)/n] >>> "))
+            print(LIGHT_RED("安装失败！"))
+            inp = input(LIGHT_YELLOW("(3a) 是否启用更多的源重新安装[(Y)/n] >>> "))
             if inp not in ("y", "Y", "\r", "\n", ""):
                 return 1
             else:
                 print(
-                    ColorStr.LIGHT_YELLOW("[提示]")
+                    LIGHT_YELLOW("[提示]")
                     + " 常用第三方源有:"
-                    + ColorStr.LIGHT_GREEN("pytorch nvidia intel Paddle ...")
+                    + LIGHT_GREEN("pytorch nvidia intel Paddle ...")
                 )
                 print("(3b) 请输入更多的源,以空格隔开: ")
                 inp_sources = input(">>> ")
                 inp_source_str = " ".join(f"-c {i}" for i in inp_sources.split())
                 command = get_cmd([f"mamba create -n {inp1} python{inp2} {inp3} {inp_source_str}"])
-                os.system(command=command)
+                subprocess.run(command, shell=True)
                 # 将启用的源添加为当前新环境的默认源
-                if inp1 in get_all_env(is_print=False)[1]["env_namelist"]:
+                if inp1 in _get_env_basic_infos()[0]:
                     inp_source_str = " ".join(f"--add channels {i}" for i in inp_sources.split()[::-1])
                     command = get_cmd(
                         [
-                            f"mamba activate {inp1}",
+                            f"conda activate {inp1}",
                             f"conda config --env {inp_source_str}",
                         ]
                     )
-                    os.system(command=command)
-                    print(f"(3c) 已将{ColorStr.LIGHT_GREEN(inp_sources)}添加为新环境{inp1}的默认源")
+                    subprocess.run(command, shell=True)
+                    print(f"(3c) 已将{LIGHT_GREEN(inp_sources)}添加为新环境{inp1}的默认源")
 
-        if is_register_jupyter and inp1 in get_all_env(is_print=False)[1]["env_namelist"]:
-            print(f"(4) 请输入此环境注册到Jupyter的显示名称(为空使用默认值):")
+        if is_register_jupyter and inp1 in _get_env_basic_infos()[0]:
+            if not inp1.isascii():
+                print(
+                    LIGHT_YELLOW(
+                        f"(i) 检测到环境名{LIGHT_CYAN(inp1)}存在非规范字符,请重新取Jupyter内核的注册名(非显示名称):"
+                    )
+                )
+                ipy_name = get_valid_input(
+                    ">>> ",
+                    lambda x: re.match(r"^[A-Za-z0-9._-]+$", x),
+                    lambda input_str: f"jupyter注册名称{LIGHT_YELLOW(input_str)}"
+                    + LIGHT_RED("不全符合[A-Za-z0-9._-]")
+                    + f",请重新为{LIGHT_CYAN(inp1)}的jupyter内核取注册名: ",
+                )
+            else:
+                ipy_name = inp1
+            print(f"(4) 请输入此环境注册的Jupyter内核的显示名称(为空使用默认值):")
             inp11 = input(f"[{inp1}] >>> ")
             if inp11 == "":
                 inp11 = inp1
-
             command = get_cmd(
                 [
-                    f"mamba activate {inp1}",
-                    f"python -m ipykernel install --user --name {inp1} --display-name {inp11}",
+                    f"conda activate {inp1}",
+                    f"python -m ipykernel install --user --name {ipy_name} --display-name {inp11}",
                 ]
             )
-            os.system(command=command)
+            subprocess.run(command, shell=True)
         res = 1
     # 如果输入的是[I]，则将指定环境注册到Jupyter
     elif inp in ["I", "i"]:
-        print("(1) 请输入想要注册到用户级Jupyter的环境的编号(或all=全部),多个以空格隔开,以回车结束: ")
+        print("(1) 请输入想要将Jupyter内核注册到用户的环境编号(或all=全部),多个以空格隔开,以回车结束: ")
         inp = input(f"[2-{env_num} | all] >>> ")
         if inp.lower() == "all":
             env_reg_names = [i for i in env_namelist if i not in illegal_env_namelist]
@@ -858,43 +1272,53 @@ def do_correct_action(inp, env_infolist_dict, env_num):
             env_reg_names = [
                 env_namelist[i] for i in env_reg_nums if env_namelist[i] not in illegal_env_namelist
             ]
-        if not _print_table(
-            env_reg_names, field_name_env="Env to Register", color_func=ColorStr.LIGHT_CYAN
-        ):
+        if not _print_table(env_reg_names, field_name_env="Env to Register", color_func=LIGHT_CYAN):
             return 1
-        print("(2) 确认注册以上环境的Jupyter到用户吗？[y(回车)/n]")
+        print("(2) 确认注册以上环境的Jupyter内核到用户吗？[y(回车)/n]")
         inp = input("[(Y)/n] >>> ")
         if inp not in ("y", "Y", "\r", "\n", ""):
             return 1
-        for j, i in enumerate(env_reg_names, 1):
-            print(f"(3.{j}) 请输入环境{ColorStr.LIGHT_CYAN(i)}注册到Jupyter的显示名称(为空使用默认值):")
-            ii = input(f"[{i}] >>> ")
-            if ii == "":
-                ii = i
-            command = get_cmd([f"mamba list -n {i} --json"])
-            with os.popen(command) as f:
-                result_text = f.buffer.read().decode("utf-8")
-            if result_text.find("ipykernel") == -1:
+        for idx, env_name in enumerate(env_reg_names, 1):
+            if not env_name.isascii():
                 print(
-                    ColorStr.LIGHT_YELLOW(
-                        "[提示] 该环境中未检测到ipykernel包，正在为环境安装ipykernel包..."
+                    LIGHT_YELLOW(
+                        f"(i) 检测到环境名{LIGHT_CYAN(env_name)}存在非规范字符,请重新取Jupyter内核的注册名(非显示名称):"
                     )
                 )
+                ipy_name = get_valid_input(
+                    ">>> ",
+                    lambda x: re.match(r"^[A-Za-z0-9._-]+$", x),
+                    lambda input_str: f"jupyter注册名称{LIGHT_YELLOW(input_str)}"
+                    + LIGHT_RED("不全符合[A-Za-z0-9._-]")
+                    + f",请重新为{LIGHT_CYAN(env_name)}的jupyter内核取注册名: ",
+                )
+            else:
+                ipy_name = env_name
+            print(
+                f"(3.{idx}) 请输入环境{LIGHT_CYAN(env_name)}注册的Jupyter内核的显示名称(为空使用默认值):"
+            )
+            ii = input(f"[{env_name}] >>> ")
+            if ii == "":
+                ii = env_name
+            command = [CONDA_EXE_PATH, "list", "-n", env_name, "--json"]
+            result_text = subprocess.run(command, stdout=subprocess.PIPE, text=True).stdout
+            if result_text.find("ipykernel") == -1:
+                print(LIGHT_YELLOW("[提示] 该环境中未检测到ipykernel包，正在为环境安装ipykernel包..."))
                 command = get_cmd(
                     [
-                        f"mamba activate {i}",
+                        f"conda activate {env_name}",
                         f"mamba install ipykernel --no-update-deps --yes --quiet",
-                        f"python -m ipykernel install --user --name {i} --display-name {ii}",
+                        f"python -m ipykernel install --user --name {ipy_name} --display-name {ii}",
                     ]
                 )
             else:
                 command = get_cmd(
                     [
-                        f"mamba activate {i}",
-                        f"python -m ipykernel install --user --name {i} --display-name {ii}",
+                        f"conda activate {env_name}",
+                        f"python -m ipykernel install --user --name {ipy_name} --display-name {ii}",
                     ]
                 )
-            os.system(command=command)
+            subprocess.run(command, shell=True)
         res = 1
     # 如果输入的是[R]，则重命名环境
     elif inp in ["R", "r"]:
@@ -902,64 +1326,82 @@ def do_correct_action(inp, env_infolist_dict, env_num):
         inp = input(f"[2-{env_num}] >>> ")
         env_nums = [int(i) - 1 for i in inp.split() if i.isdigit() and 1 <= int(i) <= env_num]
         env_names = [env_namelist[i] for i in env_nums if env_namelist[i] not in illegal_env_namelist]
-        if not _print_table(env_names, field_name_env="Env to Rename", color_func=ColorStr.LIGHT_CYAN):
+        if not _print_table(env_names, field_name_env="Env to Rename", color_func=LIGHT_CYAN):
             return 1
         print("(2) 确认重命名以上环境吗？[y(回车)/n]")
         inp = input("[(Y)/n] >>> ")
         if inp not in ("y", "Y", "\r", "\n", ""):
             return 1
-        for j, i in enumerate(env_names, 1):
-            print(f"(3.{j}) 请输入环境{ColorStr.LIGHT_CYAN(i)}重命名后的环境名称:")
+        for idx, env_name in enumerate(env_names, 1):
+            print(f"(3.{idx}) 请输入环境{LIGHT_CYAN(env_name)}重命名后的环境名称:")
             ii = get_valid_input(
                 ">>> ",
-                lambda x: is_legal_envname(x, env_namelist) and x != i,
-                lambda input_str: f"新环境名称{ColorStr.LIGHT_YELLOW(input_str)}"
-                + ColorStr.LIGHT_RED("已存在或不符合规范")
-                + f",请重新为{ColorStr.LIGHT_CYAN(i)}重命名: ",
+                lambda x: is_legal_envname(x, env_namelist) and x != env_name,
+                lambda input_str: f"新环境名称{LIGHT_YELLOW(input_str)}"
+                + LIGHT_RED("已存在或不符合规范")
+                + f",请重新为{LIGHT_CYAN(env_name)}重命名: ",
             )
             command = get_cmd(
                 [
-                    f"mamba create -n {ii} --clone {i} 1>&2",
-                    f"mamba remove -n {i} --all --yes --quiet 1>&2",
+                    f"mamba create -n {ii} --clone {env_name}",
+                    f"mamba remove -n {env_name} --all --yes --quiet",
+                ]
+            )
+            subprocess.run(command, shell=True)
+            command = get_cmd(
+                [
                     f"jupyter kernelspec list --json",
                 ]
             )
-            # os.system(command=command)
-            with os.popen(command) as f:
-                result_text = f.buffer.read().decode("utf-8")
+            result_text = subprocess.run(command, shell=True, stdout=subprocess.PIPE, text=True).stdout
             # 重新可能的Jupyter注册
             try:
                 result_json_dic = json.loads(result_text)
             except:
                 print(
-                    ColorStr.LIGHT_YELLOW(
+                    LIGHT_YELLOW(
                         "[警告] base环境未安装Jupyter,无法管理相关环境的jupyter注册,请在主界面按[J]以安装"
                     )
                 )
                 return 1
             _this_env_pypath = (
-                result_json_dic.get("kernelspecs", {}).get(i, {}).get("spec", {}).get("argv", [""])[0]
+                result_json_dic.get("kernelspecs", {})
+                .get(env_name, {})
+                .get("spec", {})
+                .get("argv", [""])[0]
             )
             if _this_env_pypath and not os.path.exists(_this_env_pypath):
                 print(
-                    ColorStr.LIGHT_YELLOW(
-                        "[提示] 检测到原环境的Jupyter注册已失效，正在为新环境重新注册Jupyter"
-                    )
+                    LIGHT_YELLOW("[提示] 检测到原环境的Jupyter注册已失效，正在为新环境重新注册Jupyter")
                 )
-                print("(4) 请输入注册到Jupyter的显示名称(为空使用默认值):")
+                if not ii.isascii():
+                    print(
+                        LIGHT_YELLOW(
+                            f"(i) 检测到新环境名{LIGHT_CYAN(ii)}存在非规范字符,请重新取Jupyter内核的注册名(非显示名称):"
+                        )
+                    )
+                    ipy_name = get_valid_input(
+                        ">>> ",
+                        lambda x: re.match(r"^[A-Za-z0-9._-]+$", x),
+                        lambda input_str: f"jupyter内核注册名称{LIGHT_YELLOW(input_str)}"
+                        + LIGHT_RED("不全符合[A-Za-z0-9._-]")
+                        + f",请重新为{LIGHT_CYAN(ii)}的jupyter内核取注册名: ",
+                    )
+                else:
+                    ipy_name = ii
+                print("(4) 请输入注册的Jupyter内核的显示名称(为空使用默认值):")
                 iii = input(f"[{ii}] >>> ")
                 if iii == "":
                     iii = ii
                 command = get_cmd(
                     [
-                        f"jupyter kernelspec uninstall {i} -y",
-                        f"mamba activate {ii}",
-                        f"python -m ipykernel install --user --name {ii} --display-name {iii}",
+                        f"jupyter kernelspec uninstall {env_name} -y",
+                        f"conda activate {ii}",
+                        f"python -m ipykernel install --user --name {ipy_name} --display-name {iii}",
                     ]
                 )
-                os.system(command=command)
-                print(ColorStr.LIGHT_GREEN(f"已重新注册新环境{ii}的Jupyter"))
-            # os.system(command=command)
+                subprocess.run(command, shell=True)
+                print(LIGHT_GREEN(f"已重新注册新环境{ii}的Jupyter"))
         res = 1
     # 如果输入的是[P]，则复制环境
     elif inp in ["P", "p"]:
@@ -973,142 +1415,129 @@ def do_correct_action(inp, env_infolist_dict, env_num):
         inp = input("[(Y)/n] >>> ")
         if inp not in ("y", "Y", "\r", "\n", ""):
             return 1
-        for j, i in enumerate(env_names, 1):
-            print(f"(3.{j}) 请输入环境{ColorStr.LIGHT_CYAN(i)}复制后的环境名称(为空使用默认值):")
-            default_envname = i + "_copy"
+        for idx, env_name in enumerate(env_names, 1):
+            print(f"(3.{idx}) 请输入环境{LIGHT_CYAN(env_name)}复制后的环境名称(为空使用默认值):")
+            default_envname = env_name + "_copy"
             iii = 1
             while default_envname in env_namelist:
                 iii += 1
-                default_envname = i + "_copy" + "_" + str(iii)
+                default_envname = env_name + "_copy" + "_" + str(iii)
             ii = get_valid_input(
                 f"[{default_envname}] >>> ",
                 lambda x: is_legal_envname(x, env_namelist) or x == "",
-                lambda input_str: f"新环境名称{ColorStr.LIGHT_YELLOW(input_str)}"
-                + ColorStr.LIGHT_RED("已存在或不符合规范")
-                + f",请重新为{ColorStr.LIGHT_CYAN(i)}命名: ",
+                lambda input_str: f"新环境名称{LIGHT_YELLOW(input_str)}"
+                + LIGHT_RED("已存在或不符合规范")
+                + f",请重新为{LIGHT_CYAN(env_name)}命名: ",
             )
             if ii == "":
                 ii = default_envname
-            command = get_cmd([f"mamba create -n {ii} --clone {i} --quiet"])
-            os.system(command=command)
+            command = get_cmd([f"mamba create -n {ii} --clone {env_name} --quiet"])
+            subprocess.run(command, shell=True)
         res = 1
     # 如果输入的是[J]，则显示、管理所有已注册的Jupyter环境及清理弃用项
     elif inp in ["J", "j"]:
-        print("当前用户已注册的Jupyter环境如下:")
-        if os.name == "nt":
-            if (
-                os.system("where jupyter >nul 2>nul") != 0
-                and os.path.exists(os.path.join(CONDA_HOME, "Scripts", "jupyter.exe")) == False
-            ):
-                print(
-                    ColorStr.LIGHT_YELLOW("[提示] 未检测到jupyter命令，正尝试向base环境安装ipykernel...")
-                )
-                command = get_cmd(["mamba install ipykernel -y"])
-                if os.system(command=command):
-                    print(
-                        ColorStr.LIGHT_RED("安装失败，请手动安装ipykernel后重试！"),
-                        ColorStr.LIGHT_YELLOW("[提示] 已打开base环境的powershell"),
-                    )
-                    conda_hook_path = os.path.join(CONDA_HOME, "shell", "condabin", "conda-hook.ps1")
-                    command = f"%windir%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -ExecutionPolicy ByPass -NoExit -Command \"& '{conda_hook_path}' ; conda activate \""
-                    os.system(command=command)
-                else:
-                    print(ColorStr.LIGHT_GREEN("base环境中ipykernel安装成功！"))
-
-            command = f"where jupyter >nul 2>nul && jupyter kernelspec list"
-        else:
-            command = f"""
-if command -v jupyter >/dev/null 2>&1; then
-    jupyter kernelspec list
-else
-    {"mamba" if IS_MAMBA else "conda"} install ipykernel -y >/dev/null 2>&1 && jupyter kernelspec list
-fi
-"""
-        command = get_cmd([command])
-        with os.popen(command) as f:
-            kernel_output = f.buffer.read().decode("utf-8").splitlines()
+        command = [CONDA_EXE_PATH, "list", "--json"]
+        if subprocess.run(command, capture_output=True, text=True).stdout.find("ipykernel") == -1:
+            print(LIGHT_YELLOW("[提示] 未检测到jupyter命令，正尝试向base环境安装ipykernel..."))
+            command = get_cmd(["mamba install ipykernel -y"])
+            if subprocess.run(command, shell=True).returncode:
+                print(LIGHT_RED("安装失败，请在base环境中手动安装ipykernel后重试！"))
+            else:
+                print(LIGHT_GREEN("base环境中ipykernel安装成功！"))
+        print("当前用户已注册的Jupyter内核如下:")
+        command = get_cmd(["jupyter kernelspec list --json"])
+        kernel_output = subprocess.run(command, shell=True, stdout=subprocess.PIPE, text=True).stdout
+        kernel_dict = json.loads(kernel_output).get("kernelspecs", {})
         # 创建表格对象
-        table = PrettyTable(["No.", "Kernel Name", "Py Ver.", "Install Time", "Location"])
+        kernel_names = []
+        is_valid_kernels = []
+        display_names = []
+        py_pathlist = []
+        py_versions = []
+        install_timestamps = []
+        kernel_dirs = []
+        try:
+            value = kernel_dict.pop("python3")
+            kernel_dict = {"python3": value, **kernel_dict}
+        except:
+            pass
+
+        for k_name, k_info in kernel_dict.items():
+            kernel_names.append(k_name)
+            display_names.append(k_info["spec"]["display_name"])
+            py_pathlist.append(k_info["spec"]["argv"][0])
+            install_timestamps.append(
+                time.strftime("%Y-%m-%d", time.gmtime(os.path.getmtime(k_info["resource_dir"])))
+            )
+            kernel_dirs.append(replace_user_path(k_info["resource_dir"]))
+        py_versions = get_pyvers_from_paths(py_pathlist)
+        is_valid_kernels = [bool(i) for i in py_versions]
+
+        dir_col_max_width = max(len(i) for i in kernel_dirs)
+        table = PrettyTable(
+            [
+                "No.",
+                "Display Name",
+                "Py Ver.",
+                "Install Time",
+                f"Resource Dir{' ':{dir_col_max_width-25}}{LIGHT_YELLOW('(Kernel Name)')}",
+            ]
+        )
         table.align = "l"
         table.border = False
         table.padding_width = 1
-        kernel_names = []
-        invalid_kernel_names = []
-        try:
-            python3_str_index = kernel_output.index(
-                next((item for item in kernel_output if "python3" in item))
-            )
-            if python3_str_index != 1:  # 如果 "python3" 不在第二项的位置
-                kernel_output.insert(1, kernel_output.pop(python3_str_index))
-        except:
-            pass
-        for i in range(len(kernel_output)):
-            if i == 0:
-                # print(kernel_output[i], end="")
+        for i in range(len(kernel_names)):
+            if kernel_names[i] == "python3":
+                table.add_row(
+                    [
+                        LIGHT_CYAN(f"[{i+1}]"),
+                        LIGHT_CYAN(display_names[i]),
+                        LIGHT_CYAN(py_versions[i]),
+                        LIGHT_CYAN(install_timestamps[i]),
+                        LIGHT_CYAN(kernel_dirs[i]),
+                    ]
+                )
                 continue
-            elif len(kernel_output[i]) < 3:
-                continue
-            kernel_dir = kernel_output[i].split()[1]
-            with open(os.path.join(kernel_dir, "kernel.json"), "r") as f:
-                kernel_info = json.load(f)
-                if os.path.exists(kernel_info["argv"][0]):
-                    name = kernel_output[i].split()[0]
-                    kernel_names.append(name)
-                    if name == "python3":
-                        table.add_row(
-                            [
-                                ColorStr.LIGHT_CYAN(f"[{i}]"),
-                                ColorStr.LIGHT_CYAN(name + " (base)"),
-                                ColorStr.LIGHT_CYAN(env_pyverlist[env_namelist.index("base")]),
-                                ColorStr.LIGHT_CYAN(
-                                    time.strftime("%Y-%m-%d", time.gmtime(os.path.getmtime(kernel_dir)))
-                                ),
-                                ColorStr.LIGHT_CYAN(replace_user_path(kernel_dir)),
-                            ]
-                        )
-                    else:
-                        table.add_row(
-                            [
-                                f"[{i}]",
-                                name,
-                                (
-                                    env_pyverlist[env_namelist.index(name)]
-                                    if name in env_namelist
-                                    else "Unknown"
-                                ),
-                                time.strftime("%Y-%m-%d", time.gmtime(os.path.getmtime(kernel_dir))),
-                                replace_user_path(kernel_dir),
-                            ]
-                        )
-                else:
-                    name = kernel_output[i].split()[0]
-                    invalid_kernel_names.append(name)
-                    table.add_row(
-                        [
-                            ColorStr.LIGHT_RED(f"[{i}]"),
-                            ColorStr.LIGHT_RED(name + " (已失效)"),
-                            ColorStr.LIGHT_RED("Unknown"),
-                            time.strftime("%Y-%m-%d", time.gmtime(os.path.getmtime(kernel_dir))),
-                            ColorStr.LIGHT_RED(replace_user_path(kernel_dir)),
-                        ]
-                    )
+            if is_valid_kernels[i]:
+                table.add_row(
+                    [
+                        f"[{i+1}]",
+                        display_names[i],
+                        py_versions[i],
+                        install_timestamps[i],
+                        os.path.split(kernel_dirs[i])[0]
+                        + os.sep
+                        + LIGHT_YELLOW(os.path.split(kernel_dirs[i])[1]),
+                    ]
+                )
+            else:
+                table.add_row(
+                    [
+                        LIGHT_RED(f"[{i+1}]"),
+                        LIGHT_RED(display_names[i] + " (已失效)"),
+                        LIGHT_RED("-"),
+                        LIGHT_RED(install_timestamps[i]),
+                        LIGHT_RED(kernel_dirs[i]),
+                    ]
+                )
+
         # 打印表格
         print(table)
         if not table._rows:
-            print(ColorStr.LIGHT_YELLOW("未检测到任何Jupyter环境"))
+            print(LIGHT_YELLOW("未检测到任何Jupyter内核注册！"))
             return 1
         print()
         # 询问清理失效项
-        if len(invalid_kernel_names) > 0:
-            print(ColorStr.LIGHT_YELLOW("(0a) 确认清理以上失效项吗？[y(回车)/n]"))
+        if not all(is_valid_kernels):
+            print(LIGHT_YELLOW("(0a) 确认清理以上失效项吗？[y(回车)/n]"))
             inp = input("[(Y)/n] >>> ")
             if inp in ("y", "Y", "\r", "\n", ""):
-                for i in invalid_kernel_names:
+                for i in [i for i in kernel_names if not is_valid_kernels[kernel_names.index(i)]]:
                     command = get_cmd([f"jupyter kernelspec uninstall {i} -y"])
-                    os.system(command=command)
+                    subprocess.run(command, shell=True)
 
         # 删除对应Jupyter环境
-        print("(1) 请输入想要删除的Jupyter环境的编号(或all=全部),多个以空格隔开,以回车结束: ")
+        print("(1) 请输入想要删除的Jupyter内核的编号(或all=全部),多个以空格隔开,以回车结束: ")
         inp = input(f"[2-{len(kernel_names)} | all] >>> ")
         if inp.lower() == "all":
             kernel_nums_todelete = range(len(kernel_names))
@@ -1120,33 +1549,36 @@ fi
             kernel_names[i] for i in kernel_nums_todelete if kernel_names[i] != "python3"
         ]
         if kernel_names_todelete:
-            print("-" * max(len(i) for i in kernel_names_todelete))
+            table = PrettyTable(["Display Name", "Location"], border=False, padding_width=1, align="l")
             for i in kernel_names_todelete:
-                print(ColorStr.LIGHT_RED(i))
-            print("-" * max(len(i) for i in kernel_names_todelete))
+                table.add_row([display_names[kernel_names.index(i)], kernel_dirs[kernel_names.index(i)]])
+            print(table.get_string().splitlines()[0])
+            print("-" * len(table.get_string().splitlines()[0]))
+            for i in table.get_string().splitlines()[1:]:
+                print(LIGHT_RED(i))
+            print("-" * len(table.get_string().splitlines()[0]))
         else:
-            print("[错误] 未检测到有效的Jupyter环境编号！")
+            print("[错误] 未检测到有效的Jupyter内核编号！")
             return 1
-        print("(2) 确认删除以上Jupyter环境吗？[y(回车)/n]")
+        print("(2) 确认删除以上Jupyter内核注册吗？[y(回车)/n]")
         inp = input("[(Y)/n] >>> ")
         if inp not in ("y", "Y", "\r", "\n", ""):
             return 1
         for i in kernel_names_todelete:
             command = get_cmd([f"jupyter kernelspec uninstall {i} -y"])
-            os.system(command=command)
+            subprocess.run(command, shell=True)
         res = 1
     # 对应环境查看并回退至历史版本按[V]
     elif inp in ["V", "v"]:
-        inp = ask_to_get_inp(
+        inp = prompt_and_validate_input(
             prefix_str="(1) ",
             askstr="需要查看及回退历史版本的环境编号",
             allow_input=[str(i) for i in range(1, env_num + 1)],
         )
         env_name = env_namelist[int(inp) - 1]
-        print(f"环境{ColorStr.LIGHT_CYAN(env_name)}的历史版本如下:")
-        command = get_cmd([f"conda list -n {env_name} --revisions"])
-        with os.popen(command) as f:
-            result_text = f.buffer.read().decode("utf-8")
+        print(f"环境{LIGHT_CYAN(env_name)}的历史版本如下:")
+        command = [CONDA_EXE_PATH, "list", "-n", env_name, "--revisions"]
+        result_text = subprocess.run(command, stdout=subprocess.PIPE, text=True).stdout
         print(result_text)
         raw_src_set = set(
             source.rsplit("/", 1)[0]
@@ -1158,8 +1590,8 @@ fi
         )
         valid_rev_nums = [i for i in re.findall((r"(?i)\(rev\s+(\d+)\)"), result_text)]
         print(
-            f"(2) 请输入环境{ColorStr.LIGHT_CYAN(env_name)}的历史版本编号["
-            + ColorStr.LIGHT_YELLOW(f"0-{max(int(i) for i in valid_rev_nums)}")
+            f"(2) 请输入环境{LIGHT_CYAN(env_name)}的历史版本编号["
+            + LIGHT_YELLOW(f"0-{max(int(i) for i in valid_rev_nums)}")
             + "],以回车结束: "
         )
         inp = get_valid_input(
@@ -1170,22 +1602,21 @@ fi
             formatted_sources = " ".join(["-c " + source for source in sourceslist])
             if formatted_sources:
                 print(
-                    ColorStr.LIGHT_YELLOW("[提示] 根据历史记录已自动启用附加源:"),
-                    ColorStr.LIGHT_GREEN(formatted_sources),
+                    LIGHT_YELLOW("[提示] 根据历史记录已自动启用附加源:"),
+                    LIGHT_GREEN(formatted_sources),
                 )
             command = get_cmd(
                 [f"conda install -n {env_name} --revision {inp} {formatted_sources}"],
             )
-            os.system(command)
+            subprocess.run(command, shell=True)
 
         res = 1
     # 如果输入的是[C]，则运行pip cache purge和mamba clean --all -y来清空所有pip与conda缓存
     elif inp in ["C", "c"]:
-        command = get_cmd(
-            ["mamba clean --all --dry-run --json --quiet", "pip cache dir"], discard_stderr=True
-        )
-        with os.popen(command) as f:
-            result_text = f.buffer.read().decode("utf-8")
+        command = get_cmd(["mamba clean --all --dry-run --json --quiet", "pip cache dir"])
+        result_text = subprocess.run(
+            command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True
+        ).stdout
         try:
             if match := re.search(r"(\{.*\})(.*)", result_text, re.DOTALL):
                 result_text_conda = match.group(1)
@@ -1284,7 +1715,7 @@ fi
                 "[(Y:All)/n | 1-5] >>> ",
                 _valid_input_condition,
                 lambda x: "输入"
-                + ColorStr.LIGHT_RED(x)
+                + LIGHT_RED(x)
                 + "应为空或Y或N或数字[1-5]的以空格隔开的组合,请重新输入: ",
             )
             if inp in ("N", "n"):
@@ -1305,15 +1736,13 @@ fi
                     elif i == "5":
                         command_list.append("pip cache purge")
                 command = get_cmd(command_list)
-            os.system(command=command)
+            subprocess.run(command, shell=True)
         except Exception as e:
             print(
-                ColorStr.LIGHT_RED(ColorStr.LIGHT_RED("[错误] ") + str(e)),
-                ColorStr.LIGHT_RED(
-                    "[错误] mamba clean --all --dry-run --json命令输出有误！无法解析,输出如下:"
-                ),
+                LIGHT_RED(LIGHT_RED("[错误] ") + str(e)),
+                LIGHT_RED("[错误] mamba clean --all --dry-run --json命令输出有误！无法解析,输出如下:"),
                 result_text,
-                ColorStr.LIGHT_YELLOW("[提示] 已启动默认清理程序"),
+                LIGHT_YELLOW("[提示] 已启动默认清理程序"),
                 sep="\n",
             )
             print("(1) 确认清空所有pip/mamba/conda缓存吗？[y(回车)/n]")
@@ -1321,12 +1750,12 @@ fi
             if inp not in ("y", "Y", "\r", "\n", ""):
                 return 1
             command = get_cmd(["mamba clean --all -y", "pip cache purge"])
-            os.system(command=command)
+            subprocess.run(command, shell=True)
 
         res = 1
     # 如果输入的是[U]，则更新指定环境的所有包
     elif inp in ["U", "u"]:
-        print(ColorStr.LIGHT_YELLOW("[提示] 慎用，请仔细检查更新前后的包对应源的变化！"))
+        print(LIGHT_YELLOW("[提示] 慎用，请仔细检查更新前后的包对应源的变化！"))
         print("(1) 请输入想要更新的环境的编号(或all=全部),多个以空格隔开,以回车结束: ")
         inp = input(f"[1-{env_num} | all] >>> ")
         if inp.lower() == "all":
@@ -1334,36 +1763,31 @@ fi
         else:
             env_nums = [int(i) - 1 for i in inp.split() if i.isdigit() and 1 <= int(i) <= env_num]
             env_names = [env_namelist[i] for i in env_nums]
-        if not _print_table(env_names, field_name_env="Env to Update", color_func=ColorStr.LIGHT_CYAN):
+        if not _print_table(env_names, field_name_env="Env to Update", color_func=LIGHT_CYAN):
             return 1
         print("(2) 确认更新以上环境吗？[y(回车)/n]")
         inp = input("[(Y)/n] >>> ")
         if inp not in ("y", "Y", "\r", "\n", ""):
             return 1
-        for j, i in enumerate(env_names, 1):
-            if i == "base":
+        for idx, env_name in enumerate(env_names, 1):
+            if env_name == "base":
                 strict_channel_priority = False
             else:
                 strict_channel_priority = True
             print(
-                f"[{j}/{len(env_names)}] 正在更新环境{ColorStr.LIGHT_CYAN(i)}的所有包...",
+                f"[{idx}/{len(env_names)}] 正在更新环境{LIGHT_CYAN(env_name)}的所有包...",
                 "(strict-channel-priority:",
-                (
-                    ColorStr.LIGHT_GREEN("True") + ")"
-                    if strict_channel_priority
-                    else ColorStr.LIGHT_RED("False") + ")"
-                ),
+                (LIGHT_GREEN("True") + ")" if strict_channel_priority else LIGHT_RED("False") + ")"),
             )
-            command = get_cmd([f"conda list -n {i} --json"])
-            with os.popen(command) as f:
-                result_text = f.buffer.read().decode("utf-8")
+            command = [CONDA_EXE_PATH, "list", "-n", env_name, "--json"]
+            result_text = subprocess.run(command, capture_output=True, text=True).stdout
             result_json_list = json.loads(result_text)
             raw_src_set = set()
             for pkginfo_dict in result_json_list:
                 if source_str := pkginfo_dict.get("channel"):
                     raw_src_set.add(source_str.rsplit("/", 1)[-1])
             if "pypi" in raw_src_set:
-                print(ColorStr.LIGHT_RED("[警告] 检测到如下由Pip管理的包，更新可能会出现问题！"))
+                print(LIGHT_RED("[警告] 检测到如下由Pip管理的包，更新可能会出现问题！"))
                 table = PrettyTable(["Package from Pip", "Version"])
                 table.align = "l"
                 table.border = False
@@ -1374,23 +1798,22 @@ fi
                 print("-" * 50)
                 print(*(i for i in table.get_string().splitlines()[1:]), sep="\n")
                 print("-" * 50)
-                print(f"(i) 是否继续更新环境{ColorStr.LIGHT_CYAN(i)}？[y/n(回车)]")
+                print(f"(i) 是否继续更新环境{LIGHT_CYAN(env_name)}？[y/n(回车)]")
                 inp1 = input("[y/(N)] >>> ")
                 if inp1 not in ("y", "Y"):
                     continue
             sourceslist = filter_and_sort_sources_by_priority(raw_src_set, enable_default_src=False)
             formatted_sources = " ".join(["-c " + source for source in sourceslist])
             if formatted_sources:
-                print(
-                    ColorStr.LIGHT_YELLOW("[提示] 已自动启用附加源: ")
-                    + ColorStr.LIGHT_GREEN(formatted_sources)
-                )
+                print(LIGHT_YELLOW("[提示] 已自动启用附加源: ") + LIGHT_GREEN(formatted_sources))
             if strict_channel_priority:
-                command_str = f"mamba update -n {i} {formatted_sources} --all --strict-channel-priority"
+                command_str = (
+                    f"mamba update -n {env_name} {formatted_sources} --all --strict-channel-priority"
+                )
             else:
                 command_str = f"mamba update --all {formatted_sources}"
             command = get_cmd([command_str])
-            os.system(command=command)
+            subprocess.run(command, shell=True)
         res = 1
     # 如果输入的是[S]，则搜索指定Python版本下的包
     elif inp in ["S", "s"]:
@@ -1398,7 +1821,7 @@ fi
             not LIBMAMBA_SOLVER_VERSION or Version(LIBMAMBA_SOLVER_VERSION) < Version("23.9")
         ):
             print(
-                ColorStr.LIGHT_YELLOW(
+                LIGHT_YELLOW(
                     "[提示] 您的conda-libmamba-solver未安装或版本过低，无法使用搜索功能，请将conda-libmamba-solver升级到23.9及以上版本"
                 )
             )
@@ -1410,7 +1833,7 @@ fi
                 print("升级libmamba命令: conda update conda-libmamba-solver --freeze-installed")
             else:
                 print("安装libmamba命令: conda install -n base conda-libmamba-solver")
-            print(ColorStr.LIGHT_YELLOW("请在base环境下执行以上命令。"))
+            print(LIGHT_YELLOW("请在base环境下执行以上命令。"))
             return 1
 
         print("(1) 请指定python版本(为空默认全版本)，以回车结束:")
@@ -1987,9 +2410,9 @@ fi
             print("-" * 100)
             print(
                 "[提示1] 搜索默认启用的源为"
-                + ColorStr.LIGHT_GREEN("pytorch,nvidia,intel,conda-forge,defaults")
+                + LIGHT_GREEN("pytorch,nvidia,intel,conda-forge,defaults")
                 + ","
-                + ColorStr.LIGHT_YELLOW("如需额外源请在末尾添加 -c 参数")
+                + LIGHT_YELLOW("如需额外源请在末尾添加 -c 参数")
             )
             print(
                 "[提示2] 可用mamba repoquery depends/whoneeds命令列出包的依赖项/列出需要给定包的程序包"
@@ -2008,14 +2431,13 @@ fi
             inp = get_valid_input(
                 ">>> ",
                 lambda x: x,
-                lambda x: "输入" + ColorStr.LIGHT_RED("不能为空") + ",请重新输入: ",
+                lambda x: "输入" + LIGHT_RED("不能为空") + ",请重新输入: ",
             )
             if inp.find(" -c ") != -1:
                 add_channels = [i for i in inp[inp.find(" -c ") :].split(" -c ") if i != ""]
                 print(
-                    ColorStr.LIGHT_YELLOW(
-                        "[提示] 检测到-c参数，已自动添加相应源: "
-                        + ColorStr.LIGHT_GREEN(", ".join(add_channels))
+                    LIGHT_YELLOW(
+                        "[提示] 检测到-c参数，已自动添加相应源: " + LIGHT_GREEN(", ".join(add_channels))
                     )
                 )
                 inp = inp[: inp.find(" -c ")]
@@ -2024,22 +2446,42 @@ fi
 
             total_channels = add_channels + ["pytorch", "nvidia", "intel", "conda-forge", "defaults"]
             total_channels = ordered_unique(total_channels)
-            if pkgs_index_last_update_time() < (time.time() - INDEX_CHECK_INTERVAL * 60):
-                command_str = f'mamba repoquery search "{inp}" {" ".join(["-c "+i for i in total_channels])} --json --quiet'
-            else:
+            # if pkgs_index_last_update_time() < (time.time() - INDEX_CHECK_INTERVAL * 60):
+            search_cache = cache_manager.get_cache("search_cache")
+            if search_cache.get("last_update_time", 0) >= (
+                time.time() - INDEX_CHECK_INTERVAL * 60
+            ) and set(total_channels).issubset(search_cache.get("total_channels", [])):
                 command_str = f'mamba repoquery search "{inp}" {" ".join(["-c "+i for i in total_channels])} --json --quiet --use-index-cache'
-            command = get_cmd([command_str], discard_stderr=True)
+                search_cache["total_channels"] = list(
+                    set(total_channels) | set(search_cache.get("total_channels", []))
+                )
+            else:
+                command_str = f'mamba repoquery search "{inp}" {" ".join(["-c "+i for i in total_channels])} --json --quiet'
+                search_cache["total_channels"] = total_channels
+            search_cache["last_update_time"] = time.time()
+            cache_manager.update_cache("search_cache", search_cache)
+
+            command = get_cmd([command_str])
             # print("command:", command)
-            print(f"正在搜索({ColorStr.LIGHT_CYAN(inp)})...")
+            # os.system("pause")
+            print(f"正在搜索({LIGHT_CYAN(inp)})...")
             t0_search = time.time()
-            with os.popen(command) as f:
-                result_text = f.buffer.read().decode("utf-8")
+            if "mamba repoquery search" in command:
+                result_text = subprocess.run(
+                    command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, shell=True
+                ).stdout.decode(
+                    "utf-8"
+                )  # win下的mamba输出强制utf-8编码问题
+            else:
+                result_text = subprocess.run(
+                    command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, shell=True, text=True
+                ).stdout
             clear_lines_above(1)
             pkg_name_to_search = inp.split("=", 1)[0]
             try:
                 result_json = json.loads(result_text)
             except json.JSONDecodeError:
-                print(ColorStr.LIGHT_RED("搜索结果解析失败!原始结果如下:"))
+                print(LIGHT_RED("搜索结果解析失败!原始结果如下:"))
                 print(result_text)
                 exit(1)
 
@@ -2047,9 +2489,7 @@ fi
                 if not result_json.get("result"):
                     print(json.dumps(result_json, indent=4))
                 print(
-                    ColorStr.LIGHT_YELLOW(
-                        f"[警告] 未搜索到任何相关包({round(time.time() - t0_search, 2)} s)！"
-                    )
+                    LIGHT_YELLOW(f"[警告] 未搜索到任何相关包({round(time.time() - t0_search, 2)} s)！")
                 )
                 return
             pkginfos_list_raw = result_json["result"]["pkgs"]
@@ -2151,9 +2591,7 @@ fi
                 """适用于user_options["display_mode"]等于1的情况"""
                 name_field = "Name"
                 version_field = (
-                    f"{ColorStr.LIGHT_GREEN('Latest')} Version"
-                    if user_options["merge_version"]
-                    else "Version"
+                    f"{LIGHT_GREEN('Latest')} Version" if user_options["merge_version"] else "Version"
                 )
                 build_count_field = "(Total Builds)"
                 channel_field = "Channel"
@@ -2212,16 +2650,16 @@ fi
                         python_version_range = f"{'':4}-{'':5}"
 
                     if pkg_overview["is_cuda"]:
-                        cuda_support = ColorStr.LIGHT_GREEN("Y")
+                        cuda_support = LIGHT_GREEN("Y")
                     else:
-                        cuda_support = ColorStr.LIGHT_RED("N")
+                        cuda_support = LIGHT_RED("N")
 
                     if pkg_overview["cuda110_12"]:
                         cuda110_12 = pkg_overview["cuda110_12"]
                         if version_parse(cuda110_12) >= version_parse("12"):
-                            cuda110_12 = f'({ColorStr.LIGHT_GREEN(f"{cuda110_12:^10}")})'
+                            cuda110_12 = f'({LIGHT_GREEN(f"{cuda110_12:^10}")})'
                         elif version_parse(cuda110_12) >= version_parse("11.8"):
-                            cuda110_12 = f'({ColorStr.LIGHT_CYAN(f"{cuda110_12:^10}")})'
+                            cuda110_12 = f'({LIGHT_CYAN(f"{cuda110_12:^10}")})'
                         else:
                             cuda110_12 = f"({cuda110_12:^10})"
 
@@ -2239,9 +2677,9 @@ fi
                     if pkg_overview["name"] in name_maxversion_dict:
                         max_version = name_maxversion_dict[pkg_overview["name"]]
                         if max_version == pkg_overview["version"]:
-                            # name_str = ColorStr.LIGHT_CYAN(name_str)
-                            version_str = ColorStr.LIGHT_GREEN(version_str)
-                            # channel_str = ColorStr.LIGHT_CYAN(channel_str)
+                            # name_str = LIGHT_CYAN(name_str)
+                            version_str = LIGHT_GREEN(version_str)
+                            # channel_str = LIGHT_CYAN(channel_str)
 
                     row = [
                         name_str,
@@ -2370,9 +2808,9 @@ fi
                     return _get_overview_table(pkginfos_list, user_options)
 
                 if user_options["sort_by"][1]:
-                    sort_flag = ColorStr.LIGHT_GREEN("▼")
+                    sort_flag = LIGHT_GREEN("▼")
                 else:
-                    sort_flag = ColorStr.LIGHT_GREEN("▲")
+                    sort_flag = LIGHT_GREEN("▲")
 
                 if len(pkginfos_list) > 0:
                     build_lengths = list(map(lambda x: len(x["build"]), pkginfos_list))
@@ -2490,7 +2928,7 @@ fi
                         pkginfo_dict["channel"],
                         python_version,
                         cuda_info,
-                        print_fsize_smart(pkginfo_dict["size"]),
+                        print_fsize_smart(pkginfo_dict["size"], B_suffix=False),
                         time.strftime("%Y-%m-%d", time.gmtime(pkginfo_dict["timestamp"])),
                     ]
                     if user_options["select_mode"]:
@@ -2674,7 +3112,7 @@ fi
                 table = _get_pkgs_table(pkginfos_list, user_options)
 
                 table_header, table_body = table.get_string().split("\n", 1)
-                print(table_header)
+                print(BOLD(table_header))
                 print("-" * len(table_header))
                 print(table_body)
                 if user_options["select_mode"]:
@@ -2696,7 +3134,7 @@ fi
                     if user_options["display_mode"] != 1:
                         while user_options["select_mode"]:
                             num_lines += count_lines_and_print(
-                                f"(i) 请输入要查看详细信息的包对应编号(带{ColorStr.LIGHT_CYAN('=')}号则显示安装命令行并拷贝到剪贴板): "
+                                f"(i) 请输入要查看详细信息的包对应编号(带{LIGHT_CYAN('=')}号则显示安装命令行并拷贝到剪贴板): "
                             )
                             key = input(">>> ")
                             num_lines += 1
@@ -2713,7 +3151,7 @@ fi
                                         "%Y-%m-%d %H:%M:%S", time.gmtime(pkginfo_dict["timestamp"])
                                     )
                                     print_str = "=" * 30
-                                    print_str += f"[{key}]包{ColorStr.LIGHT_CYAN(pkginfo_dict['name'])} {ColorStr.LIGHT_GREEN(pkginfo_dict['version'])}的详细信息如下"
+                                    print_str += f"[{key}]包{LIGHT_CYAN(pkginfo_dict['name'])} {LIGHT_GREEN(pkginfo_dict['version'])}的详细信息如下"
                                     print_str += "=" * 30
                                     num_lines += count_lines_and_print(print_str)
                                     pkginfo_dict_copy = pkginfo_dict.copy()
@@ -2750,12 +3188,12 @@ fi
                                             == 0
                                         ):
                                             num_lines += count_lines_and_print(
-                                                ColorStr.LIGHT_GREEN("[提示] 安装命令已拷贝到剪贴板！")
+                                                LIGHT_GREEN("[提示] 安装命令已拷贝到剪贴板！")
                                             )
                                     elif os.name == "nt":
                                         if os.system(f'echo "{print_str}" | clip') == 0:
                                             num_lines += count_lines_and_print(
-                                                ColorStr.LIGHT_GREEN("[提示] 安装命令已拷贝到剪贴板！")
+                                                LIGHT_GREEN("[提示] 安装命令已拷贝到剪贴板！")
                                             )
 
                             else:
@@ -2782,26 +3220,20 @@ fi
                             num_lines = 0
 
                 if user_options["display_mode"] == 1:
-                    print_str = (
-                        ColorStr.LIGHT_CYAN("[1] 概览") + "\t" + "[2] 精简显示" + "\t" + "[3] 原始显示"
-                    )
+                    print_str = LIGHT_CYAN("[1] 概览") + "\t" + "[2] 精简显示" + "\t" + "[3] 原始显示"
                 elif user_options["display_mode"] == 2:
-                    print_str = (
-                        "[1] 概览" + "\t" + ColorStr.LIGHT_CYAN("[2] 精简显示") + "\t" + "[3] 原始显示"
-                    )
+                    print_str = "[1] 概览" + "\t" + LIGHT_CYAN("[2] 精简显示") + "\t" + "[3] 原始显示"
                 else:  # display_mode == 3
-                    print_str = (
-                        "[1] 概览" + "\t" + "[2] 精简显示" + "\t" + ColorStr.LIGHT_CYAN("[3] 原始显示")
-                    )
+                    print_str = "[1] 概览" + "\t" + "[2] 精简显示" + "\t" + LIGHT_CYAN("[3] 原始显示")
                 print_str += "\t"
                 if user_options["display_mode"] != 1:
                     if is_filtered:
-                        print_str += ColorStr.LIGHT_GREEN("[F] 过滤器")
+                        print_str += LIGHT_GREEN("[F] 过滤器")
                     else:
                         print_str += "[F] 过滤器"
                     print_str += "\t"
                     if sort_by[0]:
-                        print_str += ColorStr.LIGHT_GREEN("[S] 排序")
+                        print_str += LIGHT_GREEN("[S] 排序")
                     else:
                         print_str += "[S] 排序"
                     print_str += "\t"
@@ -2810,15 +3242,15 @@ fi
                     print_str += "[V] 选择以过滤原始显示"
                     print_str += "\t"
                     if user_options["merge_version"]:
-                        print_str += ColorStr.LIGHT_GREEN("[M] 合并版本号")
+                        print_str += LIGHT_GREEN("[M] 合并版本号")
                     else:
                         print_str += "[M] 合并版本号"
                     print_str += "\t"
                     if user_options["reversed_display"]:
-                        print_str += ColorStr.LIGHT_CYAN("[R] 倒序显示")
+                        print_str += LIGHT_CYAN("[R] 倒序显示")
                     else:
                         print_str += "[R] 倒序显示"
-                print_str += "\t" + ColorStr.LIGHT_YELLOW("[Esc] 退出")
+                print_str += "\t" + LIGHT_YELLOW("[Esc] 退出")
                 num_lines += count_lines_and_print(print_str)
 
                 filter_enable_list = []
@@ -2837,7 +3269,7 @@ fi
 
                 if sort_by[0]:
                     print_str = " " * 8 + "[排序] 依据为 "
-                    print_str += ColorStr.LIGHT_GREEN(f'{sort_by[0]}{("▼" if sort_by[1] else "▲")}')
+                    print_str += LIGHT_GREEN(f'{sort_by[0]}{("▼" if sort_by[1] else "▲")}')
 
                     print_str += "  "
                     print_str += "(按↑ |↓ 键切换为升序|降序)"
@@ -2849,9 +3281,7 @@ fi
                     for i, (filter_name, filter_value) in enumerate(filter_enable_list):
                         if i:
                             print_str += ", "
-                        print_str += (
-                            f"{ColorStr.LIGHT_CYAN(filter_name)}({ColorStr.LIGHT_GREEN(filter_value)})"
-                        )
+                        print_str += f"{LIGHT_CYAN(filter_name)}({LIGHT_GREEN(filter_value)})"
                 if sort_by[0] or filter_enable_list:
                     num_lines += count_lines_and_print(print_str)
 
@@ -2880,31 +3310,23 @@ fi
                         # (名称/版本/Channel/Python版本/大小/时间戳)
                         print_strs = [
                             (
-                                ColorStr.LIGHT_GREEN("[1] 名称/版本")
+                                LIGHT_GREEN("[1] 名称/版本")
                                 if sort_by[0] == "name/version"
                                 else "[1] 名称/版本"
                             ),
+                            (LIGHT_GREEN("[2] Channel") if sort_by[0] == "channel" else "[2] Channel"),
                             (
-                                ColorStr.LIGHT_GREEN("[2] Channel")
-                                if sort_by[0] == "channel"
-                                else "[2] Channel"
-                            ),
-                            (
-                                ColorStr.LIGHT_GREEN("[3] Python版本")
+                                LIGHT_GREEN("[3] Python版本")
                                 if sort_by[0] == "python_version"
                                 else "[3] Python版本"
                             ),
                             (
-                                ColorStr.LIGHT_GREEN("[4] CUDA版本")
+                                LIGHT_GREEN("[4] CUDA版本")
                                 if sort_by[0] == "cuda_version"
                                 else "[4] CUDA版本"
                             ),
-                            ColorStr.LIGHT_GREEN("[5] 大小") if sort_by[0] == "size" else "[5] 大小",
-                            (
-                                ColorStr.LIGHT_GREEN("[6] 时间戳")
-                                if sort_by[0] == "timestamp"
-                                else "[6] 时间戳"
-                            ),
+                            LIGHT_GREEN("[5] 大小") if sort_by[0] == "size" else "[5] 大小",
+                            (LIGHT_GREEN("[6] 时间戳") if sort_by[0] == "timestamp" else "[6] 时间戳"),
                         ]
                         num_lines += count_lines_and_print("\t".join(print_strs))
 
@@ -2940,24 +3362,16 @@ fi
                     num_lines = 0
                     num_lines += count_lines_and_print("(i) 请按下过滤目标对应的序号: ")
                     print_strs = [
-                        ColorStr.LIGHT_GREEN("[1] 名称") if filters["name"] else "[1] 名称",
-                        ColorStr.LIGHT_GREEN("[2] 版本") if filters["version"] else "[2] 版本",
-                        ColorStr.LIGHT_GREEN("[3] Channel") if filters["channel"] else "[3] Channel",
+                        LIGHT_GREEN("[1] 名称") if filters["name"] else "[1] 名称",
+                        LIGHT_GREEN("[2] 版本") if filters["version"] else "[2] 版本",
+                        LIGHT_GREEN("[3] Channel") if filters["channel"] else "[3] Channel",
                         (
-                            ColorStr.LIGHT_GREEN("[4] Python版本")
+                            LIGHT_GREEN("[4] Python版本")
                             if filters["python_version"]
                             else "[4] Python版本"
                         ),
-                        (
-                            ColorStr.LIGHT_GREEN("[5] CUDA版本")
-                            if filters["cuda_version"]
-                            else "[5] CUDA版本"
-                        ),
-                        (
-                            ColorStr.LIGHT_GREEN("[6] 只显示CUDA")
-                            if filters["is_cuda_only"]
-                            else "[6] 只显示CUDA"
-                        ),
+                        (LIGHT_GREEN("[5] CUDA版本") if filters["cuda_version"] else "[5] CUDA版本"),
+                        (LIGHT_GREEN("[6] 只显示CUDA") if filters["is_cuda_only"] else "[6] 只显示CUDA"),
                     ]
                     num_lines += count_lines_and_print("\t".join(print_strs))
                     key1 = get_char(echo=False)
@@ -3062,8 +3476,8 @@ fi
             pkginfos_list = _print_transaction(user_options)
             print("-" * 100)
             print(
-                ColorStr.LIGHT_GREEN(f"搜索完成({round(time.time() - t0_search, 2)} s)！"),
-                f"对于{ColorStr.LIGHT_CYAN(inp)},共找到{ColorStr.LIGHT_CYAN(len(pkginfos_list_raw))}个相关包,搜索结果如上",
+                LIGHT_GREEN(f"搜索完成({round(time.time() - t0_search, 2)} s)！"),
+                f"对于{LIGHT_CYAN(inp)},共找到{LIGHT_CYAN(len(pkginfos_list_raw))}个相关包,搜索结果如上",
             )
             print("-" * 100)
             num_lines_2 = _get_user_options(user_options, pkginfos_list)
@@ -3097,7 +3511,7 @@ fi
     elif inp in ["H", "h"]:
         if not CONDA_VERSION or Version(CONDA_VERSION) < Version("23.5.0"):
             print(
-                ColorStr.LIGHT_RED(
+                LIGHT_RED(
                     "[错误] conda doctor命令需要conda 23.5.0及以上版本支持,请在base环境升级conda后重试!"
                 )
             )
@@ -3110,31 +3524,63 @@ fi
         else:
             env_check_nums = [int(i) - 1 for i in inp.split() if i.isdigit() and 1 <= int(i) <= env_num]
             env_check_names = [env_namelist[i] for i in env_check_nums]
-        for i, env_name in enumerate(env_check_names, 1):
-            print(
-                f"[{i}/{len(env_check_names)}] 正在检查环境{ColorStr.LIGHT_CYAN(env_name)}的健康情况..."
-            )
-            command = get_cmd([f"conda doctor -n {env_name}"])
-            print("-" * 50)
-            os.system(command)
-            print("-" * 50)
+        if (
+            os.name == "nt"
+        ):  # 因为win下运行conda doctor时任何方式捕获输出，都会有未知编码错误，这是conda自身的bug
+            for i, env_name in enumerate(env_check_names, 1):
+                print(f"[{i}/{len(env_check_names)}] 正在检查环境{LIGHT_CYAN(env_name)}的健康情况...")
+                command = get_cmd([f"conda doctor -n {env_name}"])
+                print("-" * 50)
+                subprocess.run(command, shell=True)
+                print("-" * 50)
+        else:
 
+            async def check_environment_health(env_name):
+                command = get_cmd([f"conda doctor -n {env_name}"])
+                proc = await asyncio.create_subprocess_shell(
+                    command,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
+                )
+                stdout, _ = await proc.communicate()
+                return stdout.decode("utf-8")
+
+            async def async_check_main():
+                tasks = []
+                for env_name in env_check_names:
+                    tasks.append(asyncio.create_task(check_environment_health(env_name), name=env_name))
+
+                for i, task in enumerate(tasks, 1):
+                    print(
+                        f"[{i}/{len(env_check_names)}] 正在检查环境{LIGHT_CYAN(task.get_name())}的健康情况..."
+                    )
+                    result = await task
+                    print("-" * 50)
+                    print(result)
+                    print("-" * 50)
+
+            asyncio.run(async_check_main())
+
+        input(f"{LIGHT_GREEN('[完成]')} 检查完毕,请按<回车键>继续...")
+        res = 1
+    # 如果输入的是[D],且为Windows，则计算所有环境的大小及真实磁盘占有量
+    elif inp in ["D", "d"]:
+        global ENV_SIZE_CALC_ENABLED_WIN
+        ENV_SIZE_CALC_ENABLED_WIN = True
+        # os.system("cls")
+        print("\033[2J\033[H", flush=True, end="")  # 清屏
         res = 1
     # 如果输入的是[=编号]，则浏览环境主目录
     elif inp.find("=") != -1:
         inp = int(inp[1:])
         env_name = env_namelist[inp - 1]
-        print(
-            ColorStr.LIGHT_GREEN(
-                f"[提示] 已在文件资源管理器中打开环境{ColorStr.LIGHT_CYAN(env_name)}的主目录:"
-            )
-        )
+        print(LIGHT_GREEN(f"[提示] 已在文件资源管理器中打开环境{LIGHT_CYAN(env_name)}的主目录:"))
         env_path = env_pathlist[inp - 1]
         print(env_path)
         if os.name == "nt":
-            os.system(f"start {env_path}")
+            subprocess.run(["explorer", env_path])
         else:
-            os.system(f"xdg-open {env_path}")
+            subprocess.run(["xdg-open", env_path])
         res = 1
     # 如果输入的是[Q]，则退出
     elif inp in ["Q", "q", "\x03"]:
@@ -3147,22 +3593,30 @@ fi
         if os.name == "nt":
             os.system("cls")
             conda_hook_path = os.path.join(CONDA_HOME, "shell", "condabin", "conda-hook.ps1")
-            command = f"%windir%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -ExecutionPolicy ByPass -NoExit -Command \"& '{conda_hook_path}' ; conda activate '{env_name}' \""
-            os.system(command=command)
+            command = [
+                "powershell",
+                "-ExecutionPolicy",
+                "ByPass",
+                "-NoExit",
+                "-Command",
+                f"& '{conda_hook_path}' ; conda activate '{env_name}'",
+            ]
+            subprocess.run(command)
         else:
             os.system("clear")
-            LINUX_ACTIVATION_CMD = get_linux_activation_cmd(CONDA_HOME, IS_MAMBA)
+            LINUX_ACTIVATION_CMD = get_linux_activation_shell_cmd()
             cmd_str = (
                 LINUX_ACTIVATION_CMD.replace("$", "\\$").replace('"', '\\"')
                 + f" && conda activate {env_name}"
             )
             command = rf"""bash -c 'bash --init-file <(echo ". $HOME/.bashrc; {cmd_str}")' """
-            os.system(command=command)
+            subprocess.run(command, shell=True)
+
     return res
 
 
 def main(workdir):
-    global CONDA_HOME, IS_MAMBA
+    global CONDA_HOME, IS_MAMBA, MAMBA_VERSION, LIBMAMBA_SOLVER_VERSION, CONDA_VERSION
     if CONDA_HOME == "error":
         if os.name == "nt":
             print("请输入conda/mamba发行版的安装路径,如C:\\Users\\USER_NAME\\anaconda3: ")
@@ -3178,12 +3632,12 @@ def main(workdir):
             sys.exit(1)
 
     os.chdir(workdir)
-    allow_input, env_infolist_dict, env_num = get_all_env()
-    inp = show_info_and_get_input(allow_input, env_num)
-    while do_correct_action(inp, env_infolist_dict, env_num):
+    env_infolist_dict = get_env_infos()
+    inp = show_info_and_get_input(env_infolist_dict)
+    while do_correct_action(inp, env_infolist_dict):
         print()
-        allow_input, env_infolist_dict, env_num = get_all_env()
-        inp = show_info_and_get_input(allow_input, env_num)
+        env_infolist_dict = get_env_infos()
+        inp = show_info_and_get_input(env_infolist_dict)
 
 
 if __name__ == "__main__":
@@ -3223,9 +3677,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if args.detect_distribution:
         print("计算机中所有受支持的conda/mamba发行版如下:")
-        available_conda_home_raw = get_conda_home(detect_mode=True)
-        available_conda_home = list(set(available_conda_home_raw))
-        available_conda_home.sort(key=available_conda_home_raw.index)
+        available_conda_homes = get_conda_home(detect_mode=True)
         table = PrettyTable()
         table.field_names = [
             "No.",
@@ -3236,26 +3688,26 @@ if __name__ == "__main__":
             "mamba",
             "conda-libmamba-solver",
         ]
-        for i in range(len(available_conda_home)):
+        for i in range(len(available_conda_homes)):
             table.add_row(
                 [
                     i + 1,
-                    os.path.split(available_conda_home[i])[1],
+                    os.path.split(available_conda_homes[i])[1],
                     "*" if i == 0 else "",
-                    available_conda_home[i],
+                    available_conda_homes[i],
                     (
-                        ColorStr.LIGHT_GREEN(detect_conda_mamba_infos(available_conda_home[i])[-1])
-                        if detect_conda_mamba_infos(available_conda_home[i])[-1]
-                        else ColorStr.LIGHT_RED("NO")
+                        LIGHT_GREEN(detect_conda_mamba_infos(available_conda_homes[i])[-1])
+                        if detect_conda_mamba_infos(available_conda_homes[i])[-1]
+                        else LIGHT_RED("NO")
                     ),
                     (
-                        ColorStr.LIGHT_GREEN(detect_conda_mamba_infos(available_conda_home[i])[1])
-                        if detect_conda_mamba_infos(available_conda_home[i])[1]
-                        else ColorStr.LIGHT_RED("NOT supported".upper())
+                        LIGHT_GREEN(detect_conda_mamba_infos(available_conda_homes[i])[1])
+                        if detect_conda_mamba_infos(available_conda_homes[i])[1]
+                        else LIGHT_RED("NOT supported".upper())
                     ),
                     (
-                        ColorStr.LIGHT_GREEN(detect_conda_mamba_infos(available_conda_home[i])[2])
-                        if detect_conda_mamba_infos(available_conda_home[i])[2]
+                        LIGHT_GREEN(detect_conda_mamba_infos(available_conda_homes[i])[2])
+                        if detect_conda_mamba_infos(available_conda_homes[i])[2]
                         else "-"
                     ),
                 ]
@@ -3272,16 +3724,32 @@ if __name__ == "__main__":
                 CONDA_HOME
             )
         else:
-            print(ColorStr.YELLOW(f'未在指定路径"{args.prefix}"检测到对应发行版，将使用默认发行版'))
+            print(YELLOW(f'未在指定路径"{args.prefix}"检测到对应发行版，将使用默认发行版'))
 
     elif args.distribution_name is not None:
         CONDA_HOME, IS_MAMBA, MAMBA_VERSION, LIBMAMBA_SOLVER_VERSION, CONDA_VERSION = (
             detect_conda_installation(args.distribution_name)
         )
         if os.path.split(CONDA_HOME)[1] != args.distribution_name:
-            print(ColorStr.YELLOW(f"未检测到指定的发行版({args.distribution_name})，将使用默认发行版"))
+            print(YELLOW(f"未检测到指定的发行版({args.distribution_name})，将使用默认发行版"))
     workdir = args.workdir if args.workdir is not None else USER_HOME
     if os.path.isdir(workdir):
         main(workdir)
     else:
         raise ValueError("传入的参数不是一个目录！")
+
+# ***** 版本更新日志 *****
+# 2023-9-26 v1 稳定版
+# 2023-9-27 v2 稳定版,增加了对Linux系统的全面适配
+# 2023-9-27 23:29 v2.10 完全版,优化了一些细节
+# 2023-9-28 v2.100 完全版,增加了探测所有可用发行版的功能，修复了一些错误
+# 2023-9-28 16:19--20:08 v3 稳定完全版,优化显示模块,优化逻辑，修复小错误，全面完善功能
+# 2023-9-28 22:50 v3.100 发行版,增加搜索包功能，增加退出功能
+# 2023-9-29 中秋 验收完毕
+# 2023-10-12 v5.0 大大增强了发行版的识别成功率
+# 2024-3-16 v5.1 (Release 0.1.rc0) 改善代码逻辑，修复若干问题，添加复制环境功能[P]，打开环境主目录功能[=编号]；优化使用体验
+# 致谢：ChatGPT v3.5，Github Copilot
+# 2024-4-1 v5.2 (Release 1.0) 全新的[S]搜索功能，臻品打造，全面重构了代码，完善了相应功能，优化了用户体验
+# 2024-4-2 v5.2.1 (Release 1.0.1) fix some bugs ; 2024-4-3 fix some bugs ; 2024-4-4 增加健康报告[H]功能，优化主界面显示，fix bugs ; 2024-4-5 fix bugs
+# 2024-4-23 v6.1 (Release 1.7) 主界面显示优化，增加磁盘占用列；显示大量代码重构，函数逻辑优化
+# ...
