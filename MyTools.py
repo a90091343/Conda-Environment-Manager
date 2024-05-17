@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import re
+import time
 import wcwidth
 from packaging.version import Version, InvalidVersion
 
@@ -32,16 +33,6 @@ def len_to_print(s: str) -> int:
     "返回字符串在控制台的实际打印所占格数"
     s = remove_color_from_str(s)
     return wcwidth.wcswidth(s)
-    # try:
-    #     return len(s.encode("gbk"))
-    # except:
-    #     length = 0
-    #     for char in s:
-    #         # 获取字符的 Unicode 编码
-    #         char_code = ord(char)
-    #         # 判断字符是否是全角字符
-    #         length += 2 if 0x0800 <= char_code <= 0xFFFF else 1
-    #     return length
 
 
 def cut_printstr(lim, s):
@@ -234,7 +225,7 @@ def get_folder_size(folder_path: str, verbose: bool = True) -> int:
     # return total_size
 
 
-def get_char(echo: bool = True) -> str:
+def get_char(echo: bool = False) -> str:
     """
     从标准输入流中读取单个字符，不等待回车。
     """
@@ -242,8 +233,8 @@ def get_char(echo: bool = True) -> str:
 
     if os.name == "posix":
         import tty
-        import termios
         import fcntl
+        import termios
         from locale import getpreferredencoding
 
         terminal_encoding = getpreferredencoding()
@@ -251,42 +242,33 @@ def get_char(echo: bool = True) -> str:
         old_settings = termios.tcgetattr(fd)
         try:
             tty.setraw(fd)
-            if echo:
-                # 设置终端属性以启用回显
-                new_settings = termios.tcgetattr(fd)
-                new_settings[3] |= termios.ECHO
-                termios.tcsetattr(fd, termios.TCSADRAIN, new_settings)
-
-            ch = os.read(fd, 1)
+            str_bytes = os.read(fd, 1)
             # 检查是否有更多的字符可用
             fcntl.fcntl(fd, fcntl.F_SETFL, os.O_NONBLOCK)
-            extra_chars = b""
             with contextlib.suppress(BlockingIOError):
                 while True:
                     if char := os.read(fd, 1):
-                        extra_chars += char
+                        str_bytes += char
                     else:
                         break
             fcntl.fcntl(fd, fcntl.F_SETFL, 0)  # 恢复阻塞模式
-            ch += extra_chars
+            if echo and str_bytes.decode(terminal_encoding).isprintable():
+                print(str_bytes.decode(terminal_encoding), end="", flush=True)
         finally:
-            # 恢复终端设置
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)  # 恢复终端设置
 
-        return ch.decode(terminal_encoding)
+        return str_bytes.decode(terminal_encoding)
 
     elif os.name == "nt":
         import msvcrt
 
-        while True:
-            if msvcrt.kbhit():
-                key = msvcrt.getwch()
-                if key == "\xe0":
-                    # 如果按下了特殊键，则继续读取下一个字节
-                    key += msvcrt.getwch()
-                if echo and key.isprintable():
-                    print(key, end="", flush=True)
-                return key
+        key = msvcrt.getwch()
+        if key == "\xe0":
+            # 如果按下了特殊键，则继续读取下一个字节
+            key += msvcrt.getwch()
+        if echo and key.isprintable() and len(key) == 1:
+            print(key, end="", flush=True)
+        return key
 
 
 def count_lines_and_print(text, end="\n") -> int:
@@ -686,3 +668,21 @@ def get_cluster_size_windows(path: str):
     )
 
     return sectorsPerCluster.value * bytesPerSector.value
+
+
+def clear_screen(hard: bool = True):
+    """
+    清空终端屏幕。
+    :param hard: bool,
+        True(默认): 清空终端上的所有内容；
+        False: 仅清空终端当前屏幕显示。
+    """
+    if hard:
+        if os.name == "posix":
+            os.system("clear")
+        elif os.name == "nt":
+            os.system("cls")
+        else:
+            print("\033[2J\033[H", flush=True, end="")
+    else:
+        print("\033[H\033[J", flush=True, end="")
