@@ -203,6 +203,7 @@ translation_dict = {
     '"删除程序数据文件夹({LIGHT_CYAN(data_manager.program_data_home)})"': '"Delete the program data folder ({LIGHT_CYAN(data_manager.program_data_home)})"',
     "[提示] 程序数据文件夹({LIGHT_CYAN(data_manager.program_data_home)})已删除！": "[Tip] The program data folder ({LIGHT_CYAN(data_manager.program_data_home)}) has been deleted!",
     "[错误] 程序数据文件夹不存在！": "[Error] The program data folder does NOT exist!",
+    " * 请增加终端宽度以显示更多内容 * ": " * Please widen terminal for more content * ",
 }
 sorted_keys = sorted(translation_dict.keys(), key=lambda x: len(x), reverse=True)
 sorted_dict = {key: translation_dict[key] for key in sorted_keys}

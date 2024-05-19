@@ -74,8 +74,6 @@ class ProgramDataManager:
         program_data_home = os.path.join(localshare, PROGRAME_NAME)
     data_file = os.path.join(program_data_home, _datafile_name)
 
-    # cache_file = __file__.replace(".py", ".cache")
-
     def __init__(self):
         self._all_data = self._load_data()
         self.env_info_data = self._all_data.get(CONDA_HOME, {})
@@ -602,7 +600,6 @@ def _get_envsizes_windows(pathlist):
             self.count = 0
             self.last_count = 0
             self.size = 0
-            # self.last_size = 0
             self.start_time = time.time()
             self.is_running.set()  # 设置运行信号
             super().start()
@@ -654,10 +651,7 @@ def _get_envsizes_windows(pathlist):
 
             file_count_speed = self.count - self.last_count
             self.last_count = self.count
-            # size_speed = self.size - self.last_size
-            # self.last_size = self.size
 
-            # extra_info = f"[{elapsed_time_str}<{remaining_time_str}, {file_count_speed} f/s, {print_fsize_smart(size_speed,B_suffix=False)}/s]"
             extra_info = f"[{elapsed_time_str}<{remaining_time_str}, {file_count_speed} f/s]"
 
             clear_lines_above(1)
@@ -1659,7 +1653,9 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                         LIGHT_CYAN(display_names[i]),
                         LIGHT_CYAN(py_versions[i]),
                         LIGHT_CYAN(install_timestamps[i]),
-                        LIGHT_CYAN(kernel_dirs[i]),
+                        LIGHT_CYAN(
+                            os.sep.join((lambda p: (p[0], LIGHT_YELLOW(p[1])))(os.path.split(kernel_dirs[i])))
+                        ),
                     ]
                 )
                 continue
@@ -1670,7 +1666,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                         display_names[i],
                         py_versions[i],
                         install_timestamps[i],
-                        os.path.split(kernel_dirs[i])[0] + os.sep + LIGHT_YELLOW(os.path.split(kernel_dirs[i])[1]),
+                        os.sep.join((lambda p: (p[0], LIGHT_YELLOW(p[1])))(os.path.split(kernel_dirs[i]))),
                     ]
                 )
             else:
@@ -1680,7 +1676,9 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                         LIGHT_RED(display_names[i] + " (已失效)"),
                         LIGHT_RED("-"),
                         LIGHT_RED(install_timestamps[i]),
-                        LIGHT_RED(kernel_dirs[i]),
+                        LIGHT_RED(
+                            os.sep.join((lambda p: (p[0], LIGHT_YELLOW(p[1])))(os.path.split(kernel_dirs[i])))
+                        ),
                     ]
                 )
 
@@ -2373,7 +2371,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 return ref_dict
 
             def merge_1st(self, pkginfo_dicts_list):
-                # 第一遍合并需考虑build_prefix一样，按build_number大小合并
+                """第一遍合并需考虑build_prefix一样，按build_number大小合并"""
                 merged_pkginfos_dict = {}
                 for pkginfo_dict in pkginfo_dicts_list:
                     name = pkginfo_dict["name"]
@@ -2404,8 +2402,9 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 return list(merged_pkginfos_dict.values())
 
             def merge_2nd(self, pkginfo_dicts_list):
-                # 第二遍合并只考虑name, version, channel，并注明支持的最大Python版本，与是否存在CUDA包
+                """第二遍合并只考虑name, version, channel，并注明支持的最大Python版本，与是否存在CUDA包"""
                 # 注意！这不是merge_iteration == 1的基础上再合并，而是重新从pkginfos_list_raw开始合并
+
                 merged_pkginfos_dict = {}
                 for pkginfo_dict in pkginfo_dicts_list:
                     name = pkginfo_dict["name"]
@@ -2471,7 +2470,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 return list(merged_pkginfos_dict.values())
 
             def merge_3rd(self, pkginfo_dicts_list):
-                # 第三遍合并只考虑name, channel, 并注明支持的最大Python版本，与是否存在CUDA包
+                """第三遍合并只考虑name, channel, 并注明支持的最大Python版本，与是否存在CUDA包"""
                 merged_pkginfos_dict = {}
                 for pkginfo_dict in pkginfo_dicts_list:
                     name = pkginfo_dict["name"]
@@ -2534,9 +2533,9 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                         }
                 return list(merged_pkginfos_dict.values())
 
-        def search_pkgs(target_py_version):
+        def search_pkgs_main(target_py_version):
 
-            print("-" * 100)
+            print("-" * min(100, get_terminal_size().columns))
             print(
                 "[提示1] 搜索默认启用的源为"
                 + LIGHT_GREEN("pytorch,nvidia,intel,conda-forge,defaults")
@@ -2548,7 +2547,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
             print(
                 "        (详见https://github.com/conda/conda/blob/main/docs/source/user-guide/concepts/pkg-search.rst)"
             )
-            print("-" * 100)
+            print("-" * min(100, get_terminal_size().columns))
             if target_py_version:
                 print(f"(2) 请输入想要搜索的包 (适用于Python {target_py_version}),以回车结束:")
             else:
@@ -2702,21 +2701,31 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
             # 第三遍合并只考虑name, channel
             pkginfos_list_iter3 = merge_pkginfos.merge_3rd(pkginfos_list_iter2)
 
-            def _get_overview_table(pkg_overviews_list, user_options):
-                """适用于user_options["display_mode"]等于1的情况"""
-                terminal_width = get_terminal_size().columns
-                if user_options["select_mode"]:
-                    name_len_maxlim = max(15, terminal_width - (88 + len(f"[{len(pkg_overviews_list)}]  ")))
-                else:
-                    name_len_maxlim = max(15, terminal_width - 88)
+            def _hidden_columns(row, hidden_field_indexes):
+                return [row[i] for i in range(len(row)) if i not in hidden_field_indexes]
 
+            def _get_overview_table(pkg_overviews_list, user_options) -> tuple[PrettyTable, bool]:
+                """
+                适用于user_options["display_mode"]等于1的情况。
+                <Returns>: (table, is_display_omitted) -- 同 _get_pkgs_table 函数
+                <Note>:
+                    table会尽量显示完整name字段(保证name字段长度>=_NAME_MIN_WIDTH),为此可能会：
+                        省略build_count字段->省略timestamp字段->省略channel字段
+                """
+                terminal_width = get_terminal_size().columns
+                ver_len_maxlim = 15
+
+                _hidden_fields = []
+                is_display_omitted = False
+
+                number_field = "No."
                 name_field = "Name"
                 version_field = f"{LIGHT_GREEN('Latest')} Version" if user_options["merge_version"] else "Version"
-                build_count_field = "Total Builds"
                 channel_field = "Channel"
                 python_version_field = "MinMax PyVer"
                 cuda_field = "CUDA" + f" ( ≥ 11 )"
                 timestamp_field = "Last Update"
+                build_count_field = "Total Builds"
 
                 table_fields = [
                     name_field,
@@ -2728,8 +2737,53 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                     build_count_field,
                 ]
                 if user_options["select_mode"]:
-                    table_fields.insert(0, "No.")
+                    table_fields.insert(0, number_field)
 
+                table_padding_width = 2
+                f_number_width = len(f"[{len(pkg_overviews_list)}]") if user_options["select_mode"] else 0
+                f_version_width = len_to_print(version_field)
+                f_channel_width = len_to_print(channel_field)
+                f_python_version_width = len_to_print(python_version_field)
+                f_cuda_width = len_to_print(cuda_field)
+                f_timestamp_width = len_to_print(timestamp_field)
+                f_build_count_width = len_to_print(build_count_field)
+                if len(pkg_overviews_list):
+                    f_version_width = max(
+                        f_version_width,
+                        min(ver_len_maxlim, max(map(lambda x: len(x["version"]), pkg_overviews_list))),
+                    )
+                    f_channel_width = max(
+                        f_channel_width, max(map(lambda x: len(x["channel"]), pkg_overviews_list))
+                    )
+
+                name_len_maxlim = (
+                    terminal_width
+                    - f_number_width
+                    - f_version_width
+                    - f_channel_width
+                    - f_python_version_width
+                    - f_cuda_width
+                    - f_timestamp_width
+                    - f_build_count_width
+                    - table_padding_width * (8 if user_options["select_mode"] else 7)
+                )
+                _NAME_MIN_WIDTH = 20
+                if name_len_maxlim < _NAME_MIN_WIDTH:
+                    _hidden_fields.append(build_count_field)
+                    name_len_maxlim += f_build_count_width + table_padding_width
+                if name_len_maxlim < _NAME_MIN_WIDTH:
+                    _hidden_fields.append(timestamp_field)
+                    name_len_maxlim += f_timestamp_width + table_padding_width
+                if name_len_maxlim < _NAME_MIN_WIDTH:
+                    _hidden_fields.append(channel_field)
+                    name_len_maxlim += f_channel_width + table_padding_width
+                name_len_maxlim = max(name_len_maxlim, _NAME_MIN_WIDTH)
+
+                hidden_field_indexes = {table_fields.index(field) for field in _hidden_fields}
+
+                if hidden_field_indexes:
+                    is_display_omitted = True
+                    table_fields = _hidden_columns(table_fields, hidden_field_indexes)
                 table = PrettyTable(table_fields)
                 table.align[name_field] = "l"
                 table.align[version_field] = "c"
@@ -2742,8 +2796,8 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
 
                 if len(pkg_overviews_list) == 0:
                     table.add_row(["-" for _ in range(len(table_fields))])
-                    table.align = "l"
-                    return table
+                    table.align = "c"
+                    return table, is_display_omitted
 
                 name_maxversion_dict = {}
                 for pkg_overview in pkg_overviews_list:
@@ -2791,10 +2845,11 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                             + LIGHT_YELLOW("...")
                             + pkg_overview["name"][-5:]
                         )
+                        is_display_omitted = True
                     else:
                         name_str = pkg_overview["name"]
-                    if len(pkg_overview["version"]) > 15:
-                        version_str = pkg_overview["version"][:12] + LIGHT_YELLOW("...")
+                    if len(pkg_overview["version"]) > ver_len_maxlim:
+                        version_str = pkg_overview["version"][: ver_len_maxlim - 3] + LIGHT_YELLOW("...")
                     else:
                         version_str = pkg_overview["version"]
 
@@ -2802,9 +2857,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                     if pkg_overview["name"] in name_maxversion_dict:
                         max_version = name_maxversion_dict[pkg_overview["name"]]
                         if max_version == pkg_overview["version"]:
-                            # name_str = LIGHT_CYAN(name_str)
                             version_str = LIGHT_GREEN(version_str)
-                            # channel_str = LIGHT_CYAN(channel_str)
 
                     row = [
                         name_str,
@@ -2817,9 +2870,11 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                     ]
                     if user_options["select_mode"]:
                         row.insert(0, f"[{i}]")
+                    if hidden_field_indexes:
+                        row = _hidden_columns(row, hidden_field_indexes)
                     table.add_row(row)
 
-                return table
+                return table, is_display_omitted
 
             def beautify_version_constraints(constraints_str):
                 constraints_units = constraints_str.split("|")
@@ -2916,43 +2971,58 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
 
                 return ",".join(versions)
 
-            def _get_pkgs_table(pkginfos_list, user_options):
-                """适用于user_options["display_mode"]等于2或3的情况"""
+            def _get_pkgs_table(pkginfos_list, user_options) -> tuple[PrettyTable, bool]:
+                """
+                适用于user_options["display_mode"]等于2或3的情况。
+                <Returns>: (table, is_display_omitted)
+                    table: PrettyTable
+                    is_display_omitted：是否有内容(因为终端宽度太小)被省略而未被显示
+                <Note>:
+                    table会尽量显示完整name字段(保证name字段长度>=_NAME_MIN_WIDTH),为此可能会：
+                        减少build字段长度->省略build字段->省略size字段->省略timestamp字段
+                """
                 if user_options["display_mode"] == 1:
                     return _get_overview_table(pkginfos_list, user_options)
+
+                terminal_width = get_terminal_size().columns
+                ver_len_maxlim = 15
+
+                is_display_omitted = False
+                _hidden_fields = []
 
                 if user_options["sort_by"][1]:
                     sort_flag = LIGHT_GREEN("▼")
                 else:
                     sort_flag = LIGHT_GREEN("▲")
 
-                if len(pkginfos_list) > 0:
-                    terminal_width = get_terminal_size().columns
-                    if user_options["select_mode"]:
-                        name_len_maxlim = terminal_width - (120 + len(f"[{len(pkginfos_list)}]  "))
-                    else:
-                        name_len_maxlim = terminal_width - 120
+                max_cuda_len = 6
+                max_build_count = 1
+
+                if len(pkginfos_list):
+                    # 计算build字段的90%分位数
                     build_lengths = list(map(lambda x: len(x["build"]), pkginfos_list))
                     build_lengths.sort()
-                    if user_options["display_mode"] == 3:
+                    build_len_maxlim = build_lengths[max(0, int(0.9 * len(build_lengths)) - 1)]
+                    if build_lengths[-1] - build_len_maxlim < 3:
                         build_len_maxlim = build_lengths[-1]
-                    else:
-                        # 计算build字段的90%分位数
-                        build_len_maxlim = build_lengths[max(0, int(0.9 * len(build_lengths)) - 1)]
-                        if build_lengths[-1] - build_len_maxlim < 3:
-                            build_len_maxlim = build_lengths[-1]
-                    max_name_length = max(map(lambda x: len(x["name"]), pkginfos_list))
-                    while name_len_maxlim < max_name_length:
-                        if build_len_maxlim > 9:  # 当name长度不够时，逐渐减小build长度来尽量优先name长度
-                            build_len_maxlim -= 1
-                            name_len_maxlim += 1
-                        else:
-                            break
-                    name_len_maxlim = max(10, name_len_maxlim)
 
-                    build_field = "Build"
-                    if bcount_width := max(map(lambda x: x.get("build_count", 1), pkginfos_list)) > 1:
-                        bcount_width = max(bcount_width, 2)
+                    max_name_len = max(map(lambda x: len(x["name"]), pkginfos_list))
+                    max_version_len = min(ver_len_maxlim, max(map(lambda x: len(x["version"]), pkginfos_list)))
+                    max_channel_len = max(map(lambda x: len(x["channel"]), pkginfos_list))
+                    max_python_version_len = max(
+                        map(lambda x: len(beautify_version_constraints(x["python_version"] or "")), pkginfos_list)
+                    )
+                    max_cuda_len = max(map(lambda x: len(x["cuda_version"] or ""), pkginfos_list))
+                    max_size_len = 6
+                    max_timestamp_len = 10
+                    max_build_count = max(map(lambda x: x.get("build_count", 1), pkginfos_list))
+                    bcount_width = max(len(str(max_build_count)), 2)
+
+                def __add_sort_flag(sort_by_str):
+                    return sort_flag if user_options["sort_by"][0] == sort_by_str else ""
+
+                def __get_build_fieldstr():
+                    if max_build_count > 1:
                         build_field = (
                             "Build"
                             + " "
@@ -2964,24 +3034,76 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                             )
                             + "(similar builds)"
                         )
-                else:
-                    name_len_maxlim = 10
-                    build_len_maxlim = 10
-                    bcount_width = 1
-                    build_field = "Build"
+                    else:
+                        build_field = "Build"
+                    return build_field
 
-                name_field = "Name" + (sort_flag if user_options["sort_by"][0] == "name/version" else "")
-                version_field = "Version" + (sort_flag if user_options["sort_by"][0] == "name/version" else "")
-                build_field = build_field + (sort_flag if user_options["sort_by"][0] == "build" else "")
-                channel_field = "Channel" + (sort_flag if user_options["sort_by"][0] == "channel" else "")
-                python_version_field = "Py Version" + (
-                    sort_flag if user_options["sort_by"][0] == "python_version" else ""
-                )
-                cuda_version_field = "CUDA Version" + (
-                    sort_flag if user_options["sort_by"][0] == "cuda_version" else ""
-                )
-                size_field = "Size" + (sort_flag if user_options["sort_by"][0] == "size" else "")
-                timestamp_field = "Timestamp" + (sort_flag if user_options["sort_by"][0] == "timestamp" else "")
+                number_field = "No."
+                name_field = "Name" + __add_sort_flag("name/version")
+                version_field = "Version" + __add_sort_flag("name/version")
+                build_field = __get_build_fieldstr() + __add_sort_flag("build")
+                channel_field = "Channel" + __add_sort_flag("channel")
+                python_version_field = "Python" + __add_sort_flag("python_version")
+                cuda_version_field = " CUDA " + __add_sort_flag("cuda_version")
+                size_field = (" " * 3 if max_cuda_len < 6 + 2 else "") + "Size" + __add_sort_flag("size")
+                timestamp_field = "Timestamp" + __add_sort_flag("timestamp")
+
+                table_padding_width = 2
+                f_number_width = len(f"[{len(pkginfos_list)}]") if user_options["select_mode"] else 0
+                f_version_width = len_to_print(version_field)
+                f_build_width = len_to_print(build_field)
+                f_channel_width = len_to_print(channel_field)
+                f_python_version_width = len_to_print(python_version_field)
+                f_cuda_version_width = len_to_print(cuda_version_field)
+                f_size_width = len_to_print(size_field)
+                f_timestamp_width = len_to_print(timestamp_field)
+                if len(pkginfos_list):
+                    f_version_width = max(f_version_width, max_version_len)
+                    f_channel_width = max(f_channel_width, max_channel_len)
+                    f_build_width = max(f_build_width, build_len_maxlim)
+                    f_python_version_width = max(f_python_version_width, max_python_version_len)
+                    f_cuda_version_width = max(f_cuda_version_width, max_cuda_len)
+                    f_size_width = max(f_size_width, max_size_len)
+                    f_timestamp_width = max(f_timestamp_width, max_timestamp_len)
+
+                if user_options["display_mode"] != 3 and len(pkginfos_list):
+                    name_len_maxlim = (
+                        terminal_width
+                        - f_number_width
+                        - f_version_width
+                        - f_build_width
+                        - f_channel_width
+                        - f_python_version_width
+                        - f_cuda_version_width
+                        - f_size_width
+                        - f_timestamp_width
+                        - table_padding_width * (9 if user_options["select_mode"] else 8)
+                    )
+                    while name_len_maxlim < max_name_len:
+                        is_display_omitted = True
+                        if build_len_maxlim > 9:  # 当name长度不够时，逐渐减小build长度来尽量优先name长度
+                            build_len_maxlim -= 1
+                            name_len_maxlim += 1
+                        else:
+                            break
+                    build_field = __get_build_fieldstr() + __add_sort_flag("build")
+                    f_build_width = max(len_to_print(build_field), build_len_maxlim)
+
+                    _NAME_MIN_WIDTH = 15
+                    if name_len_maxlim < _NAME_MIN_WIDTH:
+                        _hidden_fields.append(build_field)
+                        name_len_maxlim += f_build_width + table_padding_width
+                    if name_len_maxlim < _NAME_MIN_WIDTH:
+                        _hidden_fields.append(size_field)
+                        name_len_maxlim += f_size_width + table_padding_width
+                    if name_len_maxlim < _NAME_MIN_WIDTH:
+                        _hidden_fields.append(timestamp_field)
+                        name_len_maxlim += f_timestamp_width + table_padding_width
+                    name_len_maxlim = max(name_len_maxlim, _NAME_MIN_WIDTH)
+
+                elif len(pkginfos_list):  # user_options["display_mode"] == 3 且有包时
+                    name_len_maxlim = max_name_len
+                    build_len_maxlim = build_lengths[-1]
 
                 table_fields = [
                     name_field,
@@ -2994,7 +3116,13 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                     timestamp_field,
                 ]
                 if user_options["select_mode"]:
-                    table_fields.insert(0, "No.")
+                    table_fields.insert(0, number_field)
+
+                hidden_field_indexes = {table_fields.index(field) for field in _hidden_fields}
+
+                if hidden_field_indexes:
+                    is_display_omitted = True
+                    table_fields = _hidden_columns(table_fields, hidden_field_indexes)
                 table = PrettyTable(table_fields)
                 table.align[name_field] = "l"
                 table.align[version_field] = "l"
@@ -3004,13 +3132,13 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 table.align[cuda_version_field] = "c"
                 table.align[size_field] = "r"
                 table.align[timestamp_field] = "r"
-                # table.padding_width = 1
+                # table.padding_width = table_padding_width
                 table.border = False
 
                 if len(pkginfos_list) == 0:
                     table.add_row(["-" for _ in range(len(table_fields))])
-                    table.align = "l"
-                    return table
+                    table.align = "c"
+                    return table, is_display_omitted
 
                 for i, pkginfo_dict in enumerate(pkginfos_list, 1):
                     python_version = pkginfo_dict["python_version"] or "-"
@@ -3019,7 +3147,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                     if pkginfo_dict["cuda_version"]:
                         cuda_info = pkginfo_dict["cuda_version"]
                     elif pkginfo_dict["is_cuda"]:
-                        cuda_info = "UNKNOWN"
+                        cuda_info = "UNSURE"
                     else:
                         cuda_info = "  "
                     build_count = pkginfo_dict.get("build_count", 1)
@@ -3046,8 +3174,8 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                         )
                     else:
                         name_str = pkginfo_dict["name"]
-                    if user_options["display_mode"] != 3 and len(pkginfo_dict["version"]) > 15:
-                        version_str = pkginfo_dict["version"][:12] + LIGHT_YELLOW("...")
+                    if user_options["display_mode"] != 3 and len(pkginfo_dict["version"]) > ver_len_maxlim:
+                        version_str = pkginfo_dict["version"][: ver_len_maxlim - 3] + LIGHT_YELLOW("...")
                     else:
                         version_str = pkginfo_dict["version"]
                     row = [
@@ -3062,9 +3190,11 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                     ]
                     if user_options["select_mode"]:
                         row.insert(0, f"[{i}]")
+                    if hidden_field_indexes:
+                        row = _hidden_columns(row, hidden_field_indexes)
                     table.add_row(row)
 
-                return table
+                return table, is_display_omitted
 
             def _data_processing_transaction(user_options) -> list[dict]:
                 def _get_python_versionstr(version_str):
@@ -3109,14 +3239,14 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                         ):
                             version_str = finall_list[-1]
                         elif pkginfo_dict["is_cuda"]:
-                            version_str = "UNKNOWN"
+                            version_str = "UNSURE"
                         else:
                             version_str = "  "
                     else:
                         if pkginfo_dict["cuda_version"]:
                             version_str = pkginfo_dict["cuda_version"]
                         elif pkginfo_dict["is_cuda"]:
-                            version_str = "UNKNOWN"
+                            version_str = "UNSURE"
                         else:
                             version_str = "  "
                     return version_str
@@ -3124,7 +3254,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 def _parse_cuda_version(version_str):
                     if version_str == "  ":
                         return version_parse("0.0.0")
-                    elif version_str == "UNKNOWN":
+                    elif version_str == "UNSURE":
                         return version_parse("0.0.1")
                     else:
                         return version_parse(version_str)
@@ -3187,7 +3317,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                                             pkginfo_dict, filter_to_pure_version=False
                                         ),
                                         filter_value,
-                                        always_true_strs=["UNKNOWN"],
+                                        always_true_strs=["UNSURE"],
                                         always_false_strs=["  "],
                                     )
                                 ]
@@ -3232,7 +3362,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 return pkginfos_list
 
             def _print_transcation(pkginfos_list, first_print=False):
-                table = _get_pkgs_table(pkginfos_list, user_options)
+                table, is_display_omitted = _get_pkgs_table(pkginfos_list, user_options)
                 table_header, table_body = table.get_string().split("\n", 1)
                 print(BOLD(table_header))
                 print("-" * len_to_print(table_header))
@@ -3243,7 +3373,15 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                         LIGHT_GREEN(f"搜索完成({round(time.time() - t0_search, 2)} s)！"),
                         f"对于{LIGHT_CYAN(inp)},共找到{LIGHT_CYAN(len(pkginfos_list_raw))}个相关包,搜索结果如上",
                     )
-                print("-" * len_to_print(table_header))
+                if is_display_omitted:
+                    prompt_str = DIM(" * 请增加终端宽度以显示更多内容 * ")
+                    prompt_width = len_to_print(prompt_str)
+                    hyphens_half_width = (len_to_print(table_header) - prompt_width) // 2
+                    print("-" * hyphens_half_width, end="")
+                    print(prompt_str, end="")
+                    print("-" * (len_to_print(table_header) - prompt_width - hyphens_half_width))
+                else:
+                    print("-" * len_to_print(table_header))
 
             def _BOLD_keyboard_keys(print_str):
                 return re.sub(
@@ -3601,7 +3739,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 num_lines_2 = _get_user_options(user_options, pkginfos_list)
 
         while True:
-            search_pkgs(target_py_version)
+            search_pkgs_main(target_py_version)
             print()
             if target_py_version:
                 print(f"(i) 是否继续为 Python {target_py_version} 查找包? [Y(回车)/n]")
@@ -3837,19 +3975,21 @@ if __name__ == "__main__":
         raise ValueError(LIGHT_RED("[错误] 传入的参数不是一个目录！"))
 
 # ***** 版本更新日志 *****
-# 2023-9-26 v1 稳定版
-# 2023-9-27 v2 稳定版,增加了对Linux系统的全面适配
-# 2023-9-27 23:29 v2.10 完全版,优化了一些细节
-# 2023-9-28 v2.100 完全版,增加了探测所有可用发行版的功能，修复了一些错误
-# 2023-9-28 16:19--20:08 v3 稳定完全版,优化显示模块,优化逻辑，修复小错误，全面完善功能
-# 2023-9-28 22:50 v3.100 发行版,增加搜索包功能，增加退出功能
+# 2023-9-26 v0.1 稳定版
+# 2023-9-27 v0.2 稳定版,增加了对Linux系统的全面适配
+# 2023-9-27 23:29 v0.2.10 完全版,优化了一些细节
+# 2023-9-28 v0.2.100 完全版,增加了探测所有可用发行版的功能，修复了一些错误
+# 2023-9-28 16:19--20:08 v0.3 稳定完全版,优化显示模块,优化逻辑，修复小错误，全面完善功能
+# 2023-9-28 22:50 v0.3.100 发行版,增加搜索包功能，增加退出功能
 # 2023-9-29 中秋 验收完毕
-# 2023-10-12 v5.0 大大增强了发行版的识别成功率
-# 2024-3-16 v5.1 (Release 0.1.rc0) 改善代码逻辑，修复若干问题，添加复制环境功能[P]，打开环境主目录功能[=编号]；优化使用体验
-# 2024-4-1 v5.2 (Release 1.0) 全新的[S]搜索功能，臻品打造，全面重构了代码，完善了相应功能，优化了用户体验
-# 2024-4-2 v5.2.1 (Release 1.0.1) fix some bugs ; 2024-4-3 fix some bugs ; 2024-4-4 增加健康报告[H]功能，优化主界面显示，fix bugs ; 2024-4-5 fix bugs
-# 2024-4-23 v6.1.beta (Release 1.7.beta) 主界面显示优化，增加磁盘占用列；显示大量代码重构，函数逻辑优化
-# 2024-5-12 v6.1.rc2 (Release 1.7.rc2) 优化界面显示，更加友好化的操作逻辑；增加环境大小统计功能，支持统计所有环境的表观大小与实际磁盘占用；修复了一些bug
-# 2024-5-15 v6.1 (Release 1.7) 修复了一些bug；优化了一些显示与操作逻辑；2024-5-16 fix; 2024-5-17 fix;正式发布版
+# 2023-10-12 v0.5.0 大大增强了发行版的识别成功率
+# 2024-3-16 v1.0.rc0 改善代码逻辑，修复若干问题，添加复制环境功能[P]，打开环境主目录功能[=编号]；优化使用体验
+# 2024-4-1 v1.0 (Release) 全新的[S]搜索功能，臻品打造，全面重构了代码，完善了相应功能，优化了用户体验
+# 2024-4-2 v1.0.1 fix bugs ; 2024-4-3 fix; 2024-4-4 增加健康报告[H]功能，优化主界面显示，fix; 2024-4-5 v1.0.6 (Release) fix bugs
+# 2024-4-23 v1.7.beta 显示大量代码重构，函数逻辑优化；主界面显示优化，增加磁盘占用列显示 (支持统计所有环境的表观大小与实际磁盘占用)
+# 2024-5-12 v1.7.rc1 优化界面显示，更加友好化的操作逻辑；优化环境大小统计功能；修复了一些bug
+# 2024-5-15 v1.7.rc2 修复了一些bug；优化了一些显示与操作逻辑；
+# 2024-5-16 ~ 2024-5-19 v1.7 (Release) 优化了搜索结果界面的显示，增加了适应终端宽度的功能; fix bugs; 正式发布版
 # **********************
+
 # 致谢：OpenAI ChatGPT，Github Copilot
