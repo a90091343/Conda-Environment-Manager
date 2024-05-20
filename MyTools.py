@@ -1,14 +1,15 @@
-import contextlib
-import ctypes
-import itertools
 import os
-import subprocess
 import sys
 import re
 import time
+import ctypes
+import subprocess
+import contextlib
+import itertools
 import wcwidth
+from typing import Union
 from packaging.version import Version, InvalidVersion
-
+from shutil import get_terminal_size
 from ColorStr import *
 
 
@@ -25,107 +26,117 @@ def version_parse(version: str):
 
 
 def remove_color_from_str(colorful_str: str) -> str:
-    # 使用正则表达式匹配颜色控制字符串并将其移除
-    return re.sub(r"\x1b\[\d+m", "", colorful_str)
+    """移除字符串中的颜色控制字符。"""
+    return re.sub(r"\x1b\[[0-9;]*m", "", colorful_str)
+
+
+def fast_get_terminal_size() -> os.terminal_size:
+    """
+    带缓存的快速获取终端大小，若有缓存且距今不超过0.25秒，则直接返回缓存值。
+    """
+    cache = getattr(fast_get_terminal_size, "cache", None)
+    if cache and time.time() - cache["time"] < 0.25:
+        return cache["size"]
+
+    size = get_terminal_size()
+    fast_get_terminal_size.cache = {"size": size, "time": time.time()}
+
+    return size
+
+
+def count_width_per_line(s: str) -> list[int]:
+    """返回多行字符串每行的实际打印宽度列表
+    <Note>  1. 颜色控制字符会被移除
+            2. 函数能正确处理的以下特殊字符：制表符\\t(tab_size=8), 回车符\\r, 换行符\\n, 垂直制表符\\v, 换页符\\f
+                (其他不受支持的特殊字符则会被*忽略*)
+            3. 对于\\v, \\f的行为，以bash终端的垂直下移换行为准
+                (win11的Windows terminal则将其视为普通的换行符\\n, 而win10及以下的默认终端则无法正常显示）
+    """
+
+    _TAB_SIZE = 8
+    terminal_width = fast_get_terminal_size().columns
+
+    s = remove_color_from_str(s)
+
+    widths_per_line = []
+    line_width = 0
+    current_pos = 0
+
+    idx = 0
+    num_chars = len(s)
+    while idx < num_chars:
+        char = s[idx]
+        next_char = s[idx + 1] if idx + 1 < num_chars else ""
+        char_width = wcwidth.wcwidth(char)
+
+        pos_in_line = current_pos % terminal_width
+
+        if char == "\t" and next_char and (not current_pos or pos_in_line != 0):
+            # 需满足两个条件：1. 下一个字符不为空；2. 当前位置为0或当前位置不在行末
+            space_to_next_tab_stop = _TAB_SIZE - (pos_in_line % _TAB_SIZE)
+            if pos_in_line + space_to_next_tab_stop >= terminal_width:
+                if current_pos >= line_width:
+                    line_width += terminal_width - pos_in_line
+                current_pos = (current_pos + terminal_width - 1) // terminal_width * terminal_width
+                if wcwidth.wcwidth(next_char) <= 1:
+                    idx += 1  # 跳过下一个字符
+            else:
+                line_width += space_to_next_tab_stop
+                current_pos += space_to_next_tab_stop
+        elif char == "\r":
+            current_pos = current_pos // terminal_width * terminal_width
+        elif char == "\n":
+            widths_per_line.append(line_width)
+            line_width = 0
+            current_pos = 0
+        elif char in {"\v", "\f"}:
+            widths_per_line.append(line_width)
+            line_width = pos_in_line
+            current_pos = pos_in_line
+        elif char_width > 0:
+            if pos_in_line + char_width > terminal_width:
+                if current_pos >= line_width:
+                    line_width += terminal_width - pos_in_line + char_width
+                current_pos = (current_pos + terminal_width - 1) // terminal_width * terminal_width + char_width
+            else:
+                if current_pos >= line_width:
+                    line_width += char_width
+                current_pos += char_width
+
+        idx += 1
+    widths_per_line.append(line_width)
+
+    return widths_per_line
 
 
 def len_to_print(s: str) -> int:
-    "返回字符串在控制台的实际打印所占格数"
-    s = remove_color_from_str(s)
-    return wcwidth.wcswidth(s)
+    """返回字符串在控制台中的实际打印宽度,并能正确处理制表符(tab_size=8)的宽度计算。
+    <Note>  1. 若字符串存在多行，则返回最宽行的打印宽度
+            2. 其他同 count_width_per_line() 函数
+    """
+
+    return max(count_width_per_line(s))
 
 
-def cut_printstr(lim, s):
-    "lim:限制打印格数，返回截断的字符串"
-    if len_to_print(s) <= lim:
-        return s
-    s = str(s)
-    rs = ""
-    lth = 0
+def get_printed_line_count(text: str) -> int:
+    """
+    统计字符串输出时占用*终端*的实际行数，返回值恒 >= 1  (即使text为空字符串)
+    <Note>  1. 注意：默认字符串用于print(text,end="\\n"), 即本函数默认text被输出后会自动换行
+            2. 其他同 count_width_per_line() 函数
+    """
 
-    for i, c in enumerate(s):
-        lth += len_to_print(c)
-        if lth >= lim:
-            rs = s[: i + 1]
-            break
-    return rs
+    terminal_width = fast_get_terminal_size().columns
+    num_lines = 0
 
+    line_widths = count_width_per_line(text)
 
-def path_intable(n, path: str):
-    "n:控制台打印限制格数，返回路径的多行字符串，并将文件名标黄"
-
-    p1 = path
-    p2 = ""
-    p3 = ""
-    while len_to_print(p1) > n:
-        p1, pt = os.path.split(p1)
-        p2 = os.path.join(pt, p2)
-    while len_to_print(p2) > n + 1:
-        p2, pt = os.path.split(p2)
-        if pt == "":
-            p2 += "\\"
-            break
-        p3 = os.path.join(pt, p3)
-    if p2 == "":
-        pt1, pt2 = os.path.split(path)
-        return os.path.join(pt1, LIGHT_GREEN(pt2))
-    elif p3 == "":
-        pt1, pt2 = os.path.split(p2[:-1])
-        return os.path.join(p1, "") + "\n" + os.path.join(pt1, LIGHT_GREEN(pt2))
-    else:
-        pt1, pt2 = os.path.split(p3[:-1])
-        return (
-            os.path.join(p1, "")
-            + "\n"
-            + os.path.join(p2, "")
-            + "\n"
-            + os.path.join(pt1, LIGHT_GREEN(pt2))
-        )
-
-
-def show_indir(workdir, showhat="all"):
-    "展示目录下文件表格,返回所选项的绝对路径,showhat参数选项：'all','dir','file'"
-    from prettytable import PrettyTable
-
-    objs = []
-    if showhat != "file":
-        objs.extend([i for i in os.scandir(workdir) if i.is_dir()])
-    if showhat != "dir":
-        objs.extend([i for i in os.scandir(workdir) if i.is_file()])
-    tb = PrettyTable()
-    if showhat == "dir":
-        tb.field_names = ["序号", "目录名"]
-        tb.align["目录名"] = "l"
-    elif showhat == "file":
-        tb.field_names = ["序号", "文件名"]
-        tb.align["文件名"] = "l"
-    else:
-        tb.field_names = ["序号", "名称"]
-        tb.align["名称"] = "l"
-    for sn, obj in enumerate(objs, start=1):
-        tb.add_row(
-            [
-                sn,
-                (LIGHT_GREEN(obj.name) if obj.is_file() else BLUE(obj.name, backclr="lg")),
-            ]
-        )
-    print(tb)
-    rlist = []
-    while True:
-        cn = input("请输入选择的文件/目录序号 (可多选，空格分开，全选输入all)\n")
-        if len(cn) == 0:
-            continue
-        elif cn == "all":
-            rlist = [i.path for i in objs]
-            break
+    for line_width in line_widths:
+        if line_width:
+            num_lines += (line_width + terminal_width - 1) // terminal_width
         else:
-            for i in cn.split():
-                try:
-                    rlist.append(objs[(int(i) - 1)].path)
-                except:
-                    continue
-            break
-    return rlist
+            num_lines += 1
+
+    return num_lines
 
 
 def print_fsize_smart(
@@ -271,14 +282,6 @@ def get_char(echo: bool = False) -> str:
         return key
 
 
-def count_lines_and_print(text, end="\n") -> int:
-    """
-    统计字符串输出时占用的行数，并打印每一行。
-    """
-    print(text, end=end)
-    return text.count("\n") + end.count("\n")
-
-
 class AlwaysTrueVersion(Version):
     def __lt__(self, other):
         return True
@@ -320,6 +323,11 @@ class AlwaysFalseVersion(Version):
 
 
 class CachedIterator:
+    """
+    带缓存功能的迭代器，用于缓存生成器中的值。
+    可以将其视为一个普通的列表list: 即允许多次迭代、判断是否为空、根据索引获取对应的值。
+    """
+
     def __init__(self, generator):
         self.generator = generator
         self.stored_values = []
@@ -350,10 +358,13 @@ class CachedIterator:
         self.i += 1
         return value
 
-    def __bool__(self):
+    def __bool__(self) -> bool:
         return bool(self.stored_values) or not self.iterated
 
     def __getitem__(self, index):
+        """返回指定索引位置的值。
+        <Note> 如果索引超出当前缓存长度，则继续从生成器获取值并缓存，直到达到该索引。"""
+
         if not self.iterated:
             for _ in range(index - len(self.stored_values) + 1):
                 try:
@@ -368,7 +379,19 @@ class CachedIterator:
 
 def get_version_constraints_units(
     ver_constraints_str: str, always_true_strs: list = [], always_false_strs: list = []
-):
+) -> list[dict]:
+    """
+    将版本约束字符串解析为约束单元列表。
+
+    Args:
+        ver_constraints_str (str): 版本约束字符串，用管道符 "|" 分隔多个约束单元。
+        always_true_strs (list): 始终为真的字符串列表。
+        always_false_strs (list): 始终为假的字符串列表。
+
+    Returns:
+        list: 每个约束单元包含 "ands" 和 "ors" 的字典列表。
+    """
+
     constraints_units = ver_constraints_str.split("|")
 
     constraints_cons_units = []
@@ -391,15 +414,23 @@ def get_version_constraints_units(
 def is_version_within_constraints(
     version_str: str, constraints_str: str, always_true_strs: list = [], always_false_strs: list = []
 ) -> bool:
+    """
+    判断版本字符串是否符合约束条件。
+
+    Args:
+        version_str (str): 版本字符串。
+        constraints_str (str): 约束条件字符串。
+        always_true_strs (list): 始终为真的字符串列表。
+        always_false_strs (list): 始终为假的字符串列表。
+
+    Returns:
+        bool: 如果版本符合约束条件则返回 True，否则返回 False。
+    """
 
     version_cons_units = get_version_constraints_units(version_str, always_true_strs, always_false_strs)
-    constraints_cons_units = get_version_constraints_units(
-        constraints_str, always_true_strs, always_false_strs
-    )
+    constraints_cons_units = get_version_constraints_units(constraints_str, always_true_strs, always_false_strs)
 
-    for version_cons_unit, constraints_cons_unit in itertools.product(
-        version_cons_units, constraints_cons_units
-    ):
+    for version_cons_unit, constraints_cons_unit in itertools.product(version_cons_units, constraints_cons_units):
         version_cons_unit_ands = version_cons_unit["ands"]
         version_cons_unit_ors = version_cons_unit["ors"]
         constraints_cons_unit_ands = constraints_cons_unit["ands"]
@@ -464,7 +495,8 @@ def is_version_within_constraints(
     return False
 
 
-def increment(s):
+def increment_suffix(s: str) -> str:
+    """递增字符串末尾的数字或字母部分。"""
     if s.isdigit():
         return str(int(s) + 1)
 
@@ -477,7 +509,7 @@ def increment(s):
         tmp = s[-(i + 1)] + tmp
         i += 1
 
-    return s[:-1] + chr(ord(s[-1]) + 1) if i == 0 else s[:-i] + increment(tmp)
+    return s[:-1] + chr(ord(s[-1]) + 1) if i == 0 else s[:-i] + increment_suffix(tmp)
 
 
 def _generate_and_constraints(and_constraints):
@@ -495,12 +527,12 @@ def _generate_and_constraints(and_constraints):
                 # 与逻辑
                 elif version_ver_parts[-1] == "*":
                     yield ">=", version_parse(".".join(version_ver_parts[:-1]))
-                    version_ver_parts[-2] = increment(version_ver_parts[-2])
+                    version_ver_parts[-2] = increment_suffix(version_ver_parts[-2])
                     yield "<", version_parse(".".join(version_ver_parts[:-1]))
                 else:
                     version_ver_parts[-1] = version_ver_parts[-1].replace("*", "")
                     yield ">=", version_parse(".".join(version_ver_parts))
-                    version_ver_parts[-1] = increment(version_ver_parts[-1])
+                    version_ver_parts[-1] = increment_suffix(version_ver_parts[-1])
                     yield "<", version_parse(".".join(version_ver_parts))
             else:
                 yield version_op, version_parse(version_ver.replace("*", ""))
@@ -522,17 +554,17 @@ def _generate_or_constraints(or_constraints):
         # 或逻辑
         elif version_ver_parts[-1] == "*":
             yield "<", version_parse(".".join(version_ver_parts[:-1]))
-            version_ver_parts[-2] = increment(version_ver_parts[-2])
+            version_ver_parts[-2] = increment_suffix(version_ver_parts[-2])
             yield ">=", version_parse(".".join(version_ver_parts[:-1]))
         else:
             version_ver_parts[-1] = version_ver_parts[-1].replace("*", "")
             yield "<", version_parse(".".join(version_ver_parts))
-            version_ver_parts[-1] = increment(version_ver_parts[-1])
+            version_ver_parts[-1] = increment_suffix(version_ver_parts[-1])
             yield ">=", version_parse(".".join(version_ver_parts))
 
 
 def _generate_and_constraints_without_star(constraints_str: str):
-    for constraint in all_op_vers_pattern.finditer(constraints_str):
+    for constraint in _all_op_vers_pattern.finditer(constraints_str):
         version_op, version_ver = constraint.groups()
         if version_op == "!":
             version_op = "!="
@@ -542,11 +574,21 @@ def _generate_and_constraints_without_star(constraints_str: str):
         yield version_op, version_parse(version_ver)
 
 
-all_op_vers_pattern = re.compile(r"([~<>=!]{0,2})\s*([\w.*]+)")
+_all_op_vers_pattern = re.compile(r"([~<>=!]{0,2})\s*([\w.*]+)")
 
 
-def parse_constraints(constraints_str: str):
-    # v2.0 支持星号通配符,返回带缓存迭代器CachedIterator或空列表
+def parse_constraints(constraints_str: str) -> tuple[Union[CachedIterator, list], Union[CachedIterator, list]]:
+    """
+    解析约束字符串，返回二元元组，每个元素为带缓存迭代器CachedIterator或空列表。
+
+    Args:
+        constraints_str (str): 约束字符串。
+
+    Returns:
+        (Union[CachedIterator, list], Union[CachedIterator, list]): 包含两个元素的元组，第一个元素是AND约束条件，
+        第二个元素是OR约束条件。如果没有对应的约束条件，则返回空列表。
+    """
+    # v2.0 支持星号通配符
 
     if not constraints_str:
         return [], []
@@ -554,7 +596,7 @@ def parse_constraints(constraints_str: str):
     if "*" not in constraints_str:
         return CachedIterator(_generate_and_constraints_without_star(constraints_str)), []
 
-    constraints = all_op_vers_pattern.findall(constraints_str)
+    constraints = _all_op_vers_pattern.findall(constraints_str)
 
     and_constraints = []
     or_constraints = []
@@ -585,7 +627,7 @@ def parse_constraints(constraints_str: str):
 
 
 def compare_versions(version_ver, version_op, constraint_ver, constraint_op):
-    # 判断2个版本约束条件是否相交,约束符号仅能取"=", "!=", "<", "<=", ">", ">=","~="
+    """判断2个版本约束条件是否相交,约束符号仅能取"=", "!=", "<", "<=", ">", ">=","~=" """
     # assert version_op in ["=", "!=", "<", "<=", ">", ">="]
     # assert constraint_op in ["=", "!=", "<", "<=", ">", ">="]
 
@@ -643,7 +685,8 @@ def compare_versions(version_ver, version_op, constraint_ver, constraint_op):
         return True
 
 
-def ordered_unique(input_list):
+def ordered_unique(input_list: list) -> list:
+    """去除列表中的重复元素，并保持元素的原始顺序。"""
     seen = set()
     output_list = []
     for item in input_list:
@@ -686,3 +729,93 @@ def clear_screen(hard: bool = True):
             print("\033[2J\033[H", flush=True, end="")
     else:
         print("\033[H\033[J", flush=True, end="")
+
+
+#  ----- * 以下是大学时写的函数，之后也没有修改过 * -----
+
+
+def cut_printstr(lim, s):
+    "lim:限制打印格数，返回截断的字符串"
+    if len_to_print(s) <= lim:
+        return s
+    s = str(s)
+    rs = ""
+    lth = 0
+
+    for i, c in enumerate(s):
+        lth += len_to_print(c)
+        if lth >= lim:
+            rs = s[: i + 1]
+            break
+    return rs
+
+
+def path_intable(n, path: str):
+    "n:控制台打印限制格数，返回路径的多行字符串，并将文件名标黄"
+
+    p1 = path
+    p2 = ""
+    p3 = ""
+    while len_to_print(p1) > n:
+        p1, pt = os.path.split(p1)
+        p2 = os.path.join(pt, p2)
+    while len_to_print(p2) > n + 1:
+        p2, pt = os.path.split(p2)
+        if pt == "":
+            p2 += "\\"
+            break
+        p3 = os.path.join(pt, p3)
+    if p2 == "":
+        pt1, pt2 = os.path.split(path)
+        return os.path.join(pt1, LIGHT_GREEN(pt2))
+    elif p3 == "":
+        pt1, pt2 = os.path.split(p2[:-1])
+        return os.path.join(p1, "") + "\n" + os.path.join(pt1, LIGHT_GREEN(pt2))
+    else:
+        pt1, pt2 = os.path.split(p3[:-1])
+        return os.path.join(p1, "") + "\n" + os.path.join(p2, "") + "\n" + os.path.join(pt1, LIGHT_GREEN(pt2))
+
+
+def show_indir(workdir, showhat="all"):
+    "展示目录下文件表格,返回所选项的绝对路径,showhat参数选项：'all','dir','file'"
+    from prettytable import PrettyTable
+
+    objs = []
+    if showhat != "file":
+        objs.extend([i for i in os.scandir(workdir) if i.is_dir()])
+    if showhat != "dir":
+        objs.extend([i for i in os.scandir(workdir) if i.is_file()])
+    tb = PrettyTable()
+    if showhat == "dir":
+        tb.field_names = ["序号", "目录名"]
+        tb.align["目录名"] = "l"
+    elif showhat == "file":
+        tb.field_names = ["序号", "文件名"]
+        tb.align["文件名"] = "l"
+    else:
+        tb.field_names = ["序号", "名称"]
+        tb.align["名称"] = "l"
+    for sn, obj in enumerate(objs, start=1):
+        tb.add_row(
+            [
+                sn,
+                (LIGHT_GREEN(obj.name) if obj.is_file() else BLUE(obj.name, backclr="lg")),
+            ]
+        )
+    print(tb)
+    rlist = []
+    while True:
+        cn = input("请输入选择的文件/目录序号 (可多选，空格分开，全选输入all)\n")
+        if len(cn) == 0:
+            continue
+        elif cn == "all":
+            rlist = [i.path for i in objs]
+            break
+        else:
+            for i in cn.split():
+                try:
+                    rlist.append(objs[(int(i) - 1)].path)
+                except:
+                    continue
+            break
+    return rlist

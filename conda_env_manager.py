@@ -10,31 +10,17 @@ import json
 import time
 from packaging.version import Version
 from glob import glob
-from shutil import get_terminal_size, rmtree
+from shutil import rmtree
 from typing import Literal, Union
-from ColorStr import *
 from prettytable import PrettyTable
-from MyTools import (
-    get_cluster_size_windows,
-    len_to_print,
-    version_parse,
-    clear_lines_above,
-    get_version_constraints_units,
-    ordered_unique,
-    print_fsize_smart,
-    get_folder_size,
-    get_char,
-    count_lines_and_print,
-    is_version_within_constraints,
-    clear_screen,
-)
+from ColorStr import *
+from MyTools import *
 
 if os.name == "posix":
     import readline  # 使Linux下的input()函数支持上下左右键
 
 PROGRAME_NAME = "Conda-Environment-Manager"
 USER_HOME = os.path.expanduser("~")
-INDEX_CHECK_INTERVAL = 30  # 30分钟检查一次，搜索功能的索引文件在这期间内使用缓存搜索
 
 allowed_release_names = [
     "CONDA_PREFIX",
@@ -65,14 +51,15 @@ source_priority_table = {
 class ProgramDataManager:
     """用于管理程序数据的类"""
 
-    _datafile_name = PROGRAME_NAME + ".json"
     if os.name == "nt":
-        localappdata = os.environ["LOCALAPPDATA"]
-        program_data_home = os.path.join(localappdata, PROGRAME_NAME)
+        localappdata_home = os.environ.get("LOCALAPPDATA", os.path.join(USER_HOME, "AppData", "Local"))
     else:  # os.name == "posix":
-        localshare = os.path.join(USER_HOME, ".local", "share")
-        program_data_home = os.path.join(localshare, PROGRAME_NAME)
-    data_file = os.path.join(program_data_home, _datafile_name)
+        localappdata_home = os.environ.get("XDG_DATA_HOME", os.path.join(USER_HOME, ".local", "share"))
+    if os.path.exists(localappdata_home):
+        program_data_home = os.path.join(localappdata_home, PROGRAME_NAME)
+    else:
+        program_data_home = os.path.join(USER_HOME, "." + PROGRAME_NAME.lower())
+    data_file = os.path.join(program_data_home, "data.json")
 
     def __init__(self):
         self._all_data = self._load_data()
@@ -630,7 +617,7 @@ def _get_envsizes_windows(pathlist):
 
             size_str = " - Apparent Size: " + print_fsize_smart(self.size)
 
-            num_files_str = " - Files: " + str(self.count)
+            num_files_str = " - Files: " + f"{self.count:,}"
 
             # 计算已消耗时间
             elapsed_time = time.time() - self.start_time
@@ -652,7 +639,7 @@ def _get_envsizes_windows(pathlist):
             file_count_speed = self.count - self.last_count
             self.last_count = self.count
 
-            extra_info = f"[{elapsed_time_str}<{remaining_time_str}, {file_count_speed} f/s]"
+            extra_info = f"[{elapsed_time_str}<{remaining_time_str}; {file_count_speed:,} f/s]"
 
             clear_lines_above(1)
             print(bar + size_str + num_files_str + " " + extra_info, flush=True)
@@ -1601,6 +1588,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
             command = get_cmd(["mamba install ipykernel -y"])
             if subprocess.run(command, shell=True).returncode:
                 print(LIGHT_RED("[提示] 安装失败，请在 base 环境中手动安装ipykernel后重试！"))
+                return 1
             else:
                 print(LIGHT_GREEN(f"[提示] {LIGHT_CYAN('base')}环境中ipykernel安装成功！"))
         print("当前用户已注册的Jupyter内核如下:")
@@ -1946,9 +1934,9 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                     if pkginfo_dict.get("channel") == "pypi":
                         table.add_row([pkginfo_dict["name"], pkginfo_dict["version"]])
                 print(table.get_string().splitlines()[0])
-                print("-" * 50)
+                print("-" * len_to_print(table.get_string().splitlines()[0]))
                 print(*(i for i in table.get_string().splitlines()[1:]), sep="\n")
-                print("-" * 50)
+                print("-" * len_to_print(table.get_string().splitlines()[0]))
                 print(f"(i) 是否继续更新环境{LIGHT_CYAN(env_name)}？[y/n(回车)]")
                 inp1 = input("[y/(N)] >>> ")
                 if inp1 not in ("y", "Y"):
@@ -2534,8 +2522,9 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 return list(merged_pkginfos_dict.values())
 
         def search_pkgs_main(target_py_version):
+            INDEX_CHECK_INTERVAL = 30  # 30分钟检查一次，搜索功能的索引文件在这期间内使用缓存搜索
 
-            print("-" * min(100, get_terminal_size().columns))
+            print("-" * min(100, fast_get_terminal_size().columns))
             print(
                 "[提示1] 搜索默认启用的源为"
                 + LIGHT_GREEN("pytorch,nvidia,intel,conda-forge,defaults")
@@ -2547,7 +2536,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
             print(
                 "        (详见https://github.com/conda/conda/blob/main/docs/source/user-guide/concepts/pkg-search.rst)"
             )
-            print("-" * min(100, get_terminal_size().columns))
+            print("-" * min(100, fast_get_terminal_size().columns))
             if target_py_version:
                 print(f"(2) 请输入想要搜索的包 (适用于Python {target_py_version}),以回车结束:")
             else:
@@ -2712,7 +2701,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                     table会尽量显示完整name字段(保证name字段长度>=_NAME_MIN_WIDTH),为此可能会：
                         省略build_count字段->省略timestamp字段->省略channel字段
                 """
-                terminal_width = get_terminal_size().columns
+                terminal_width = fast_get_terminal_size().columns
                 ver_len_maxlim = 15
 
                 _hidden_fields = []
@@ -2984,7 +2973,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 if user_options["display_mode"] == 1:
                     return _get_overview_table(pkginfos_list, user_options)
 
-                terminal_width = get_terminal_size().columns
+                terminal_width = fast_get_terminal_size().columns
                 ver_len_maxlim = 15
 
                 is_display_omitted = False
@@ -3390,7 +3379,13 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                     print_str,
                 )
 
-            def _get_user_options(user_options, pkginfos_list):
+            def _get_user_options(user_options, pkginfos_list) -> int:
+                """返回已打印到终端的实际行数 num_lines"""
+
+                def __count_and_print(s) -> int:
+                    print(s)
+                    return get_printed_line_count(s)
+
                 user_options["need_reprint"] = True
 
                 num_lines = 0
@@ -3403,7 +3398,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 if user_options["select_mode"]:
                     if user_options["display_mode"] != 1:
                         while user_options["select_mode"]:
-                            num_lines += count_lines_and_print(
+                            num_lines += __count_and_print(
                                 f"(i) 请输入要查看详细信息的包对应编号(带{LIGHT_CYAN('=')}号则显示安装命令行并拷贝到剪贴板): "
                             )
                             key = input(">>> ")
@@ -3420,10 +3415,19 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                                     pkginfo_dict["timestamp"] = time.strftime(
                                         "%Y-%m-%d %H:%M:%S", time.gmtime(pkginfo_dict["timestamp"])
                                     )
-                                    print_str = "=" * 30
-                                    print_str += f"[{key}]包{LIGHT_CYAN(pkginfo_dict['name'])} {LIGHT_GREEN(pkginfo_dict['version'])}的详细信息如下"
-                                    print_str += "=" * 30
-                                    num_lines += count_lines_and_print(print_str)
+                                    prompt_str = f" [{key}]包{LIGHT_CYAN(pkginfo_dict['name'])} {LIGHT_GREEN(pkginfo_dict['version'])}的详细信息如下 "
+                                    print_str = (
+                                        "="
+                                        * min(
+                                            35, (fast_get_terminal_size().columns - len_to_print(prompt_str)) // 2
+                                        )
+                                        + prompt_str
+                                        + "="
+                                        * min(
+                                            35, (fast_get_terminal_size().columns - len_to_print(prompt_str)) // 2
+                                        )
+                                    )
+                                    num_lines += __count_and_print(print_str)
                                     pkginfo_dict_copy = pkginfo_dict.copy()
                                     pkginfo_dict_copy.pop("build_count", None)
                                     pkginfo_dict_copy.pop("build_prefix", None)
@@ -3436,7 +3440,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                                     if not pkginfo_dict_copy.get("constrains"):
                                         pkginfo_dict_copy.pop("constrains")
                                     print_str = json.dumps(pkginfo_dict_copy, indent=4, skipkeys=True)
-                                    num_lines += count_lines_and_print(print_str)
+                                    num_lines += __count_and_print(print_str)
                             elif key.find("=") != -1:
                                 key = key.replace("=", "")
                                 if key.isdigit() and 1 <= int(key) <= len(pkginfos_list):
@@ -3451,15 +3455,15 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                                     print_str += f" install {name}={version}={build}"
                                     if channel not in ("defaults", "conda-forge"):
                                         print_str += f" -c {channel}"
-                                    num_lines += count_lines_and_print(print_str)
+                                    num_lines += __count_and_print(print_str)
                                     if os.name == "posix":
                                         if os.system(f'echo "{print_str}" | xclip -selection clipboard') == 0:
-                                            num_lines += count_lines_and_print(
+                                            num_lines += __count_and_print(
                                                 LIGHT_GREEN("[提示] 安装命令已拷贝到剪贴板！")
                                             )
                                     elif os.name == "nt":
                                         if os.system(f'echo "{print_str}" | clip') == 0:
-                                            num_lines += count_lines_and_print(
+                                            num_lines += __count_and_print(
                                                 LIGHT_GREEN("[提示] 安装命令已拷贝到剪贴板！")
                                             )
 
@@ -3467,7 +3471,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                                 clear_lines_above(2)
                                 num_lines -= 2
                     else:  # display_mode == 1
-                        num_lines += count_lines_and_print("(i) 请输入要跳转到原始显示模式并过滤的包版本对应编号:")
+                        num_lines += __count_and_print("(i) 请输入要跳转到原始显示模式并过滤的包版本对应编号:")
                         key = input(">>> ")
                         num_lines += 1
                         if key.isdigit() and 1 <= int(key) <= len(pkginfos_list):
@@ -3517,7 +3521,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                         print_str += "[R] 倒序显示"
                 print_str += "\t" + LIGHT_YELLOW("[Esc] 退出")
                 print_str = _BOLD_keyboard_keys(print_str)
-                num_lines += count_lines_and_print(print_str)
+                num_lines += __count_and_print(print_str)
 
                 filter_enable_list = []
                 if filters["name"]:
@@ -3549,7 +3553,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                             print_str += ", "
                         print_str += f"{LIGHT_CYAN(filter_name)}({LIGHT_GREEN(filter_value)})"
                 if sort_by[0] or filter_enable_list:
-                    num_lines += count_lines_and_print(print_str)
+                    num_lines += __count_and_print(print_str)
 
                 key = get_char()
 
@@ -3572,7 +3576,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                     else:
                         clear_lines_above(num_lines)
                         num_lines = 0
-                        num_lines += count_lines_and_print("(i) 请按下排序依据对应的序号: ")
+                        num_lines += __count_and_print("(i) 请按下排序依据对应的序号: ")
                         # (名称/版本/Channel/Python版本/大小/时间戳)
                         print_strs = [
                             (LIGHT_GREEN("[1] 名称/版本") if sort_by[0] == "name/version" else "[1] 名称/版本"),
@@ -3587,7 +3591,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                             (LIGHT_GREEN("[6] 时间戳") if sort_by[0] == "timestamp" else "[6] 时间戳"),
                         ]
                         print_str = _BOLD_keyboard_keys("\t".join(print_strs))
-                        num_lines += count_lines_and_print(print_str)
+                        num_lines += __count_and_print(print_str)
 
                         key1 = get_char()
                         if key1 == "1":
@@ -3615,7 +3619,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 elif key in ("F", "f") and user_options["display_mode"] != 1:
                     clear_lines_above(num_lines)
                     num_lines = 0
-                    num_lines += count_lines_and_print("(i) 请按下过滤目标对应的序号: ")
+                    num_lines += __count_and_print("(i) 请按下过滤目标对应的序号: ")
                     print_strs = [
                         LIGHT_GREEN("[1] 名称") if filters["name"] else "[1] 名称",
                         LIGHT_GREEN("[2] 版本") if filters["version"] else "[2] 版本",
@@ -3625,7 +3629,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                         (LIGHT_GREEN("[6] 只显示CUDA") if filters["is_cuda_only"] else "[6] 只显示CUDA"),
                     ]
                     print_str = _BOLD_keyboard_keys("\t".join(print_strs))
-                    num_lines += count_lines_and_print(print_str)
+                    num_lines += __count_and_print(print_str)
                     key1 = get_char()
                     if key1 == "1":
                         if filters["name"]:
@@ -3633,7 +3637,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                         else:
                             clear_lines_above(num_lines)
                             num_lines = 0
-                            num_lines += count_lines_and_print("(ii) 请输入名称过滤器(支持通配符*): ")
+                            num_lines += __count_and_print("(ii) 请输入名称过滤器(支持通配符*): ")
                             filters["name"] = input(">>> ")
                             num_lines += 1
                     elif key1 == "2":
@@ -3642,7 +3646,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                         else:
                             clear_lines_above(num_lines)
                             num_lines = 0
-                            num_lines += count_lines_and_print(
+                            num_lines += __count_and_print(
                                 "(ii) 请输入版本过滤器(支持比较式[示例: 1.19|<2|>=2.6,<2.10.0a0,!=2.9.*]): "
                             )
                             filters["version"] = input(">>> ")
@@ -3653,7 +3657,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                         else:
                             clear_lines_above(num_lines)
                             num_lines = 0
-                            num_lines += count_lines_and_print("(ii) 请输入Channel过滤器(支持通配符*): ")
+                            num_lines += __count_and_print("(ii) 请输入Channel过滤器(支持通配符*): ")
                             filters["channel"] = input(">>> ")
                             num_lines += 1
                     elif key1 == "4":
@@ -3662,7 +3666,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                         else:
                             clear_lines_above(num_lines)
                             num_lines = 0
-                            num_lines += count_lines_and_print(
+                            num_lines += __count_and_print(
                                 "(ii) 请输入Python版本过滤器(支持主次版本号比较式[示例: >=3.11|3.7|!=2.*,<3.10a0,!=3.8]): "
                             )
                             filters["python_version"] = input(">>> ")
@@ -3674,7 +3678,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                         else:
                             clear_lines_above(num_lines)
                             num_lines = 0
-                            num_lines += count_lines_and_print(
+                            num_lines += __count_and_print(
                                 "(ii) 请输入CUDA版本过滤器(支持主次版本号比较式[示例: !=12.2,<=12.3|>=9,<13.0a0,!=10.*]): "
                             )
                             filters["cuda_version"] = input(">>> ")
@@ -3766,9 +3770,9 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
             for i, env_name in enumerate(env_check_names, 1):
                 print(f"[{i}/{len(env_check_names)}] 正在检查环境{LIGHT_CYAN(env_name)}的健康情况...")
                 command = get_cmd([f'conda doctor -n "{env_name}"'])
-                print("-" * 50)
+                print("-" * (fast_get_terminal_size().columns - 5))
                 subprocess.run(command, shell=True)
-                print("-" * 50)
+                print("-" * (fast_get_terminal_size().columns - 5))
         else:
 
             async def check_environment_health(env_name):
@@ -3789,9 +3793,9 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 for i, task in enumerate(tasks, 1):
                     print(f"[{i}/{len(env_check_names)}] 正在检查环境{LIGHT_CYAN(task.get_name())}的健康情况...")
                     result = await task
-                    print("-" * 50)
+                    print("-" * (fast_get_terminal_size().columns - 5))
                     print(result)
-                    print("-" * 50)
+                    print("-" * (fast_get_terminal_size().columns - 5))
 
             asyncio.run(async_check_main())
 
@@ -3991,5 +3995,4 @@ if __name__ == "__main__":
 # 2024-5-15 v1.7.rc2 修复了一些bug；优化了一些显示与操作逻辑；
 # 2024-5-16 ~ 2024-5-19 v1.7 (Release) 优化了搜索结果界面的显示，增加了适应终端宽度的功能; fix bugs; 正式发布版
 # **********************
-
 # 致谢：OpenAI ChatGPT，Github Copilot

@@ -53,7 +53,9 @@
 
 ### 开始使用
 
-- #### 方法一 使用源码文件
+- #### 方法一 使用Release页面的二进制程序
+
+- #### 方法二 使用源码文件
    1. 有 Python >= **3.9** 的用户级安装；
       
       在此Python环境下安装依赖：
@@ -70,8 +72,6 @@
       3.1 命令行使用提示：
       
       *加`-h`参数以显示帮助；`-d`参数指定脚本的工作目录；`-p`参数指明其Conda/Mamba发行版安装位置(环境主目录安装在了非常规位置的情况)*
-
-- #### 方法二 使用Release页面的二进制程序
 
 ---
 
@@ -125,7 +125,9 @@
 
 ### Getting Started
 
-- #### Method 1: Using the Source Code Files
+- #### Method 1: Use the binary program from the Release page
+
+- #### Method 2: Using the Source Code Files
    1. Python >= **3.9** installation at user level is required.
 
       Install dependencies in this Python environment by:
@@ -146,13 +148,12 @@
    
          *Add the `-h` parameter to display help; use the `-d` parameter to specify the working directory of the script; and use the `-p` parameter to specify the installation location of its Conda/Mamba distribution (in cases where the environment's main directory is installed in an unconventional location).*
 
-- #### Method 2: Use the binary program from the Release page
-
-**Would you like to give it a try? 😊 Wishing you a pleasant experience!**
-
 ## 致谢 Acknowledgements
 
 感谢 OpenAI ChatGPT 与 Github Copilot 在代码编写、英文翻译上提供的帮助。
 
 Special thanks to OpenAI ChatGPT and GitHub Copilot for their assistance with code writing and English translation.
 
+---
+
+**Would you like to give it a try? 😊 Wishing you a pleasant experience!**
