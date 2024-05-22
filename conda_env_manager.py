@@ -156,7 +156,7 @@ def get_valid_input(prompt: str, condition_func, error_msg_func=None, max_errors
     error_count = 0
     if error_msg_func is None:
         error_msg_func = lambda input_str: f"输入错误{LIGHT_RED(error_count)}次，请重新输入: "
-    inp = input(prompt)
+    inp = input_strip(prompt)
     while not condition_func(inp):
         error_count += 1
         if error_count == 1:
@@ -167,7 +167,7 @@ def get_valid_input(prompt: str, condition_func, error_msg_func=None, max_errors
         if error_count > max_errors:
             print(f"输入错误达到最大次数({LIGHT_RED(max_errors)})，程序退出")
             sys.exit(1)
-        inp = input(prompt)
+        inp = input_strip(prompt)
     if error_count > 0:
         clear_lines_above(prompt.count("\n") + 1 + error_msg_func(inp).count("\n") + 1)
         print(prompt + inp)
@@ -928,8 +928,8 @@ def prompt_and_validate_input(prefix_str, askstr, allow_input=None, immediately_
                     inp = inp[:-1]
                     print("\r\033[K" + ">>> " + inp, end="", flush=True)
         else:
-            inp = input(">>> ")
-        return inp
+            inp = input_strip(">>> ")
+        return inp.strip()
 
     _to_print(prefix_str + "请输入" + askstr)
     inp = _to_get_input()
@@ -1282,7 +1282,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
     # 如果输入的是[-]，则删除环境
     if inp == "-":
         print("(1) 请输入想要删除的环境的编号(或all=全部),多个以空格隔开,以回车结束: ")
-        inp = input(f"[2-{env_num} | all] >>> ")
+        inp = input_strip(f"[2-{env_num} | all] >>> ")
         if inp.lower() == "all":
             env_delete_names = [i for i in env_namelist if i not in illegal_env_namelist]
         else:
@@ -1294,8 +1294,8 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
             return 1
         print("(2) 确认删除以上环境吗？[y(回车)/n]")
 
-        inp = input("[(Y)/n] >>> ")
-        if inp not in ("y", "Y", "\r", "\n", ""):
+        inp = input_strip("[(Y)/n] >>> ")
+        if inp not in ("y", "Y", ""):
             return 1
         for i in env_delete_names:
             command = get_cmd([f'mamba remove -n "{i}" --all --yes --quiet'])
@@ -1355,7 +1355,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
             LIGHT_YELLOW("[提示]")
             + f" 若输入\"{LIGHT_GREEN('--+')}\",则等效于预安装\"{LIGHT_YELLOW(pre_install_pkgs)}\"包(并将该环境的Jupyter内核注册到用户)"
         )
-        inp3 = input(">>> ")
+        inp3 = input_strip(">>> ")
         is_register_jupyter = False
         if inp3.find("--+") != -1:
             inp3 = inp3.replace("--+", pre_install_pkgs)
@@ -1366,13 +1366,13 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
         # 如果安装不成功则尝试使用更多的源
         if cmd_res != 0:
             print(LIGHT_RED("安装失败！"))
-            inp = input(LIGHT_YELLOW("(3a) 是否启用更多的源重新安装[(Y)/n] >>> "))
-            if inp not in ("y", "Y", "\r", "\n", ""):
+            inp = input_strip(LIGHT_YELLOW("(3a) 是否启用更多的源重新安装[(Y)/n] >>> "))
+            if inp not in ("y", "Y", ""):
                 return 1
             else:
                 print(LIGHT_YELLOW("[提示]") + " 常用第三方源有:" + LIGHT_GREEN("pytorch nvidia intel Paddle ..."))
                 print("(3b) 请输入更多的源,以空格隔开: ")
-                inp_sources = input(">>> ")
+                inp_sources = input_strip(">>> ")
                 inp_source_str = " ".join(f"-c {i}" for i in inp_sources.split())
                 command = get_cmd([f'mamba create -n "{inp1}" python{inp2} {inp3} {inp_source_str}'])
                 subprocess.run(command, shell=True)
@@ -1405,7 +1405,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
             else:
                 ipy_name = inp1
             print(f"(4) 请输入此环境注册的Jupyter内核的显示名称(为空使用默认值):")
-            inp11 = input(f"[{inp1}] >>> ")
+            inp11 = input_strip(f"[{inp1}] >>> ")
             if inp11 == "":
                 inp11 = inp1
             command = get_cmd(
@@ -1419,7 +1419,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
     # 如果输入的是[I]，则将指定环境注册到Jupyter
     elif inp in ["I", "i"]:
         print("(1) 请输入想要将Jupyter内核注册到用户的环境编号(或all=全部),多个以空格隔开,以回车结束: ")
-        inp = input(f"[2-{env_num} | all] >>> ")
+        inp = input_strip(f"[2-{env_num} | all] >>> ")
         if inp.lower() == "all":
             env_reg_names = [i for i in env_namelist if i not in illegal_env_namelist]
         else:
@@ -1428,8 +1428,8 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
         if not _print_table(env_reg_names, field_name_env="Env to Register", color_func=LIGHT_CYAN):
             return 1
         print("(2) 确认注册以上环境的Jupyter内核到用户吗？[y(回车)/n]")
-        inp = input("[(Y)/n] >>> ")
-        if inp not in ("y", "Y", "\r", "\n", ""):
+        inp = input_strip("[(Y)/n] >>> ")
+        if inp not in ("y", "Y", ""):
             return 1
         for idx, env_name in enumerate(env_reg_names, 1):
             if not env_name.isascii():
@@ -1448,7 +1448,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
             else:
                 ipy_name = env_name
             print(f"(3.{idx}) 请输入环境{LIGHT_CYAN(env_name)}注册的Jupyter内核的显示名称(为空使用默认值):")
-            ii = input(f"[{env_name}] >>> ")
+            ii = input_strip(f"[{env_name}] >>> ")
             if ii == "":
                 ii = env_name
             command = [CONDA_EXE_PATH, "list", "-n", env_name, "--json"]
@@ -1474,14 +1474,14 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
     # 如果输入的是[R]，则重命名环境
     elif inp in ["R", "r"]:
         print("(1) 请输入想要重命名的环境的编号,多个以空格隔开,以回车结束: ")
-        inp = input(f"[2-{env_num}] >>> ")
+        inp = input_strip(f"[2-{env_num}] >>> ")
         env_nums = [int(i) - 1 for i in inp.split() if i.isdigit() and 1 <= int(i) <= env_num]
         env_names = [env_namelist[i] for i in env_nums if env_namelist[i] not in illegal_env_namelist]
         if not _print_table(env_names, field_name_env="Env to Rename", color_func=LIGHT_CYAN):
             return 1
         print("(2) 确认重命名以上环境吗？[y(回车)/n]")
-        inp = input("[(Y)/n] >>> ")
-        if inp not in ("y", "Y", "\r", "\n", ""):
+        inp = input_strip("[(Y)/n] >>> ")
+        if inp not in ("y", "Y", ""):
             return 1
         for idx, env_name in enumerate(env_names, 1):
             print(f"(3.{idx}) 请输入环境{LIGHT_CYAN(env_name)}重命名后的环境名称:")
@@ -1536,7 +1536,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 else:
                     ipy_name = ii
                 print("(4) 请输入注册的Jupyter内核的显示名称(为空使用默认值):")
-                iii = input(f"[{ii}] >>> ")
+                iii = input_strip(f"[{ii}] >>> ")
                 if iii == "":
                     iii = ii
                 command = get_cmd(
@@ -1552,14 +1552,14 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
     # 如果输入的是[P]，则复制环境
     elif inp in ["P", "p"]:
         print("(1) 请输入想要复制的环境的编号,多个以空格隔开,以回车结束: ")
-        inp = input(f"[1-{env_num}] >>> ")
+        inp = input_strip(f"[1-{env_num}] >>> ")
         env_nums = [int(i) - 1 for i in inp.split() if i.isdigit() and 1 <= int(i) <= env_num]
         env_names = [env_namelist[i] for i in env_nums]
         if not _print_table(env_names, field_name_env="Env to Copy"):
             return 1
         print("(2) 确认复制以上环境吗？[y(回车)/n]")
-        inp = input("[(Y)/n] >>> ")
-        if inp not in ("y", "Y", "\r", "\n", ""):
+        inp = input_strip("[(Y)/n] >>> ")
+        if inp not in ("y", "Y", ""):
             return 1
         for idx, env_name in enumerate(env_names, 1):
             print(f"(3.{idx}) 请输入环境{LIGHT_CYAN(env_name)}复制后的环境名称(为空使用默认值):")
@@ -1679,15 +1679,15 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
         # 询问清理失效项
         if not all(is_valid_kernels):
             print(LIGHT_YELLOW("(0a) 确认清理以上失效项吗？[y(回车)/n]"))
-            inp = input("[(Y)/n] >>> ")
-            if inp in ("y", "Y", "\r", "\n", ""):
+            inp = input_strip("[(Y)/n] >>> ")
+            if inp in ("y", "Y", ""):
                 for i in [i for i in kernel_names if not is_valid_kernels[kernel_names.index(i)]]:
                     command = get_cmd([f'jupyter kernelspec uninstall "{i}" -y'])
                     subprocess.run(command, shell=True)
 
         # 删除对应Jupyter环境
         print("(1) 请输入想要删除的Jupyter内核的编号(或all=全部),多个以空格隔开,以回车结束: ")
-        inp = input(f"[2-{len(kernel_names)} | all] >>> ")
+        inp = input_strip(f"[2-{len(kernel_names)} | all] >>> ")
         if inp.lower() == "all":
             kernel_nums_todelete = range(len(kernel_names))
         else:
@@ -1708,8 +1708,8 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
             print("[错误] 未检测到有效的Jupyter内核编号！")
             return 1
         print("(2) 确认删除以上Jupyter内核注册吗？[y(回车)/n]")
-        inp = input("[(Y)/n] >>> ")
-        if inp not in ("y", "Y", "\r", "\n", ""):
+        inp = input_strip("[(Y)/n] >>> ")
+        if inp not in ("y", "Y", ""):
             return 1
         for i in kernel_names_todelete:
             command = get_cmd([f'jupyter kernelspec uninstall "{i}" -y'])
@@ -1859,7 +1859,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
             )
             if inp in ("N", "n"):
                 return 1
-            elif inp in ("y", "Y", "\r", "\n", ""):
+            elif inp in ("y", "Y", ""):
                 command = get_cmd(["mamba clean --all -y", "pip cache purge"])
             else:
                 command_list = []
@@ -1885,8 +1885,8 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 sep="\n",
             )
             print("(1) 确认清空所有Conda/pip缓存吗？[y(回车)/n]")
-            inp = input("[(Y)/n] >>> ")
-            if inp not in ("y", "Y", "\r", "\n", ""):
+            inp = input_strip("[(Y)/n] >>> ")
+            if inp not in ("y", "Y", ""):
                 return 1
             command = get_cmd(["mamba clean --all -y", "pip cache purge"])
             subprocess.run(command, shell=True)
@@ -1896,7 +1896,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
     elif inp in ["U", "u"]:
         print(LIGHT_YELLOW("[提示] 慎用，请仔细检查更新前后的包对应源的变化！"))
         print("(1) 请输入想要更新的环境的编号(或all=全部),多个以空格隔开,以回车结束: ")
-        inp = input(f"[1-{env_num} | all] >>> ")
+        inp = input_strip(f"[1-{env_num} | all] >>> ")
         if inp.lower() == "all":
             env_names = env_namelist
         else:
@@ -1905,8 +1905,8 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
         if not _print_table(env_names, field_name_env="Env to Update", color_func=LIGHT_CYAN):
             return 1
         print("(2) 确认更新以上环境吗？[y(回车)/n]")
-        inp = input("[(Y)/n] >>> ")
-        if inp not in ("y", "Y", "\r", "\n", ""):
+        inp = input_strip("[(Y)/n] >>> ")
+        if inp not in ("y", "Y", ""):
             return 1
         for idx, env_name in enumerate(env_names, 1):
             if env_name == "base":
@@ -1938,7 +1938,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 print(*(i for i in table.get_string().splitlines()[1:]), sep="\n")
                 print("-" * len_to_print(table.get_string().splitlines()[0]))
                 print(f"(i) 是否继续更新环境{LIGHT_CYAN(env_name)}？[y/n(回车)]")
-                inp1 = input("[y/(N)] >>> ")
+                inp1 = input_strip("[y/(N)] >>> ")
                 if inp1 not in ("y", "Y"):
                     continue
             sourceslist = filter_and_sort_sources_by_priority(raw_src_set, enable_default_src=False)
@@ -3401,7 +3401,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                             num_lines += __count_and_print(
                                 f"(i) 请输入要查看详细信息的包对应编号(带{LIGHT_CYAN('=')}号则显示安装命令行并拷贝到剪贴板): "
                             )
-                            key = input(">>> ")
+                            key = input_strip(">>> ")
                             num_lines += 1
                             if key == "":
                                 user_options["select_mode"] = False
@@ -3472,7 +3472,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                                 num_lines -= 2
                     else:  # display_mode == 1
                         num_lines += __count_and_print("(i) 请输入要跳转到原始显示模式并过滤的包版本对应编号:")
-                        key = input(">>> ")
+                        key = input_strip(">>> ")
                         num_lines += 1
                         if key.isdigit() and 1 <= int(key) <= len(pkginfos_list):
                             pkginfo_dict = pkginfos_list[int(key) - 1].copy()
@@ -3638,7 +3638,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                             clear_lines_above(num_lines)
                             num_lines = 0
                             num_lines += __count_and_print("(ii) 请输入名称过滤器(支持通配符*): ")
-                            filters["name"] = input(">>> ")
+                            filters["name"] = input_strip(">>> ")
                             num_lines += 1
                     elif key1 == "2":
                         if filters["version"]:
@@ -3649,7 +3649,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                             num_lines += __count_and_print(
                                 "(ii) 请输入版本过滤器(支持比较式[示例: 1.19|<2|>=2.6,<2.10.0a0,!=2.9.*]): "
                             )
-                            filters["version"] = input(">>> ")
+                            filters["version"] = input_strip(">>> ")
                             num_lines += 1
                     elif key1 == "3":
                         if filters["channel"]:
@@ -3658,7 +3658,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                             clear_lines_above(num_lines)
                             num_lines = 0
                             num_lines += __count_and_print("(ii) 请输入Channel过滤器(支持通配符*): ")
-                            filters["channel"] = input(">>> ")
+                            filters["channel"] = input_strip(">>> ")
                             num_lines += 1
                     elif key1 == "4":
                         if filters["python_version"]:
@@ -3669,7 +3669,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                             num_lines += __count_and_print(
                                 "(ii) 请输入Python版本过滤器(支持主次版本号比较式[示例: >=3.11|3.7|!=2.*,<3.10a0,!=3.8]): "
                             )
-                            filters["python_version"] = input(">>> ")
+                            filters["python_version"] = input_strip(">>> ")
                             num_lines += 1
                     elif key1 == "5":
                         if filters["cuda_version"]:
@@ -3681,7 +3681,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                             num_lines += __count_and_print(
                                 "(ii) 请输入CUDA版本过滤器(支持主次版本号比较式[示例: !=12.2,<=12.3|>=9,<13.0a0,!=10.*]): "
                             )
-                            filters["cuda_version"] = input(">>> ")
+                            filters["cuda_version"] = input_strip(">>> ")
                             filters["is_cuda_only"] = True
                             num_lines += 1
                     elif key1 == "6":
@@ -3749,8 +3749,8 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 print(f"(i) 是否继续为 Python {target_py_version} 查找包? [Y(回车)/n]")
             else:
                 print("(i) 是否继续为所有 Python 版本查找包? [Y(回车)/n]")
-            inp = input("[(Y)/n] >>> ")
-            if inp not in ("y", "Y", "\r", "\n", ""):
+            inp = input_strip("[(Y)/n] >>> ")
+            if inp not in ("y", "Y", ""):
                 break
         res = 1
     # 如果输入的是[H],则显示由"conda doctor"命令出具的Conda环境健康报告
@@ -3760,7 +3760,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
             print("升级conda命令: conda update -n base -c defaults conda")
             return 1
         print("(1) 请输入想要检查完整性的环境的编号(默认为全部),多个以空格隔开,以回车结束: ")
-        inp = input(f"[(ALL) | 1-{env_num}] >>> ")
+        inp = input_strip(f"[(ALL) | 1-{env_num}] >>> ")
         if inp.lower() in ["all", ""]:
             env_check_names = [i for i in env_namelist]
         else:
@@ -3799,7 +3799,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
 
             asyncio.run(async_check_main())
 
-        input(f"{LIGHT_GREEN('[完成]')} 检查完毕,请按<回车键>继续...")
+        input_strip(f"{LIGHT_GREEN('[完成]')} 检查完毕,请按<回车键>继续...")
         res = 1
     # 如果输入的是[D],且为Windows，则计算所有环境的大小及真实磁盘占有量
     elif inp in ["D", "d"]:
@@ -3857,7 +3857,7 @@ def main(workdir):
             print("请输入Conda/Mamba发行版的安装路径,如C:\\Users\\USER_NAME\\anaconda3: ")
         else:
             print("请输入Conda/Mamba发行版的安装路径,如/home/USER_NAME/anaconda3: ")
-        conda_prefix = input(">>> ")
+        conda_prefix = input_strip(">>> ")
         if os.path.isdir(conda_prefix) and os.path.exists(os.path.join(conda_prefix, "conda-meta")):
             CONDA_HOME = conda_prefix
             IS_MAMBA, MAMBA_VERSION, LIBMAMBA_SOLVER_VERSION, CONDA_VERSION = detect_conda_mamba_infos(CONDA_HOME)

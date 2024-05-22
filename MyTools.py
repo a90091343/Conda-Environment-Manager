@@ -731,6 +731,11 @@ def clear_screen(hard: bool = True):
         print("\033[H\033[J", flush=True, end="")
 
 
+def input_strip(prompt: str = "") -> str:
+    """从标准输入中获取用户输入，并去除两端的空白字符。"""
+    return input(prompt).strip()
+
+
 #  ----- * 以下是大学时写的函数，之后也没有修改过 * -----
 
 
