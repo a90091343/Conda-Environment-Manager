@@ -6,8 +6,9 @@ import ctypes
 import subprocess
 import contextlib
 import itertools
+from prettytable import PrettyTable
 import wcwidth
-from typing import Union
+from typing import Literal, Union
 from packaging.version import Version, InvalidVersion
 from shutil import get_terminal_size
 from ColorStr import *
@@ -169,18 +170,11 @@ def print_fsize_smart(
                 return f"{sign}{fsize:.{max(0,precision-1)}f} {units[i]}"
         fsize /= 1024  # type: ignore
     return f"{sign}{fsize:.2f} {units[-1]}"
-    # import math
-    # size_bytes = fsize
-    # size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
-    # i = int(math.floor(math.log(size_bytes, 1024)))
-    # p = math.pow(1024, i)
-    # s = round(size_bytes / p, 2)
-    # return "{} {}".format(s, size_name[i])
 
 
 def clear_lines_above(num_lines: int):
     """
-    清除并覆盖指定行数以上的输出，注意！不能清除被终端隐藏的未显示的行。
+    清除并覆盖指定行数以上的输出，注意：只能清除当前显示区域内的行，不能清除已经滚动出显示区域的内容。
     :param num_lines: int, 要清除并覆盖的行数
     """
     for _ in range(num_lines):
@@ -220,20 +214,6 @@ def get_folder_size(folder_path: str, verbose: bool = True) -> int:
             if verbose:
                 print(RED(e))
             return 0
-    # total_size = 0
-    # for dirpath, dirnames, filenames in os.walk(folder_path):
-    #     for filename in filenames:
-    #         file_path = os.path.join(dirpath, filename)
-    #         try:
-    #             total_size += os.path.getsize(file_path)
-    #         except Exception as e:
-    #             if verbose:
-    #                 print(
-    #                     LIGHT_RED(
-    #                         f"[An error occurred while calculating the folder size]: {e}"
-    #                     )
-    #                 )
-    # return total_size
 
 
 def get_char(echo: bool = False) -> str:
@@ -362,8 +342,10 @@ class CachedIterator:
         return bool(self.stored_values) or not self.iterated
 
     def __getitem__(self, index):
-        """返回指定索引位置的值。
-        <Note> 如果索引超出当前缓存长度，则继续从生成器获取值并缓存，直到达到该索引。"""
+        """
+        返回指定索引位置的值。
+            <Note> 如果索引超出当前缓存长度，则继续从生成器获取值并缓存，直到达到该索引。
+        """
 
         if not self.iterated:
             for _ in range(index - len(self.stored_values) + 1):
@@ -626,7 +608,7 @@ def parse_constraints(constraints_str: str) -> tuple[Union[CachedIterator, list]
     return ands, ors
 
 
-def compare_versions(version_ver, version_op, constraint_ver, constraint_op):
+def compare_versions(version_ver: Version, version_op: str, constraint_ver: Version, constraint_op: str) -> bool:
     """判断2个版本约束条件是否相交,约束符号仅能取"=", "!=", "<", "<=", ">", ">=","~=" """
     # assert version_op in ["=", "!=", "<", "<=", ">", ">="]
     # assert constraint_op in ["=", "!=", "<", "<=", ">", ">="]
@@ -644,45 +626,26 @@ def compare_versions(version_ver, version_op, constraint_ver, constraint_op):
             return version_ver > constraint_ver
         elif constraint_op == ">=":
             return version_ver >= constraint_ver
-        else:
-            return True
     elif version_op == "!=":
-        return version_ver != constraint_ver if constraint_op == "=" else True
+        if constraint_op == "=":
+            return version_ver != constraint_ver
     elif version_op == "<":
-        if constraint_op in ("<", "<=", "!="):
-            return True
-        elif constraint_op in (">", ">=", "="):
+        if constraint_op in (">", ">=", "="):
             return version_ver > constraint_ver
-        else:
-            return True
     elif version_op == "<=":
-        if constraint_op in ("<", "<=", "!="):
-            return True
-        elif constraint_op == ">":
+        if constraint_op == ">":
             return version_ver > constraint_ver
         elif constraint_op in (">=", "="):
             return version_ver >= constraint_ver
-        else:
-            return True
     elif version_op == ">":
         if constraint_op in ("<", "<=", "="):
             return version_ver < constraint_ver
-        elif constraint_op in (">", ">=", "!="):
-            return True
-        else:
-            return True
     elif version_op == ">=":
         if constraint_op == "<":
             return version_ver < constraint_ver
         elif constraint_op in ("<=", "="):
             return version_ver <= constraint_ver
-        elif constraint_op in (">", ">=", "!="):
-            return True
-        else:
-            return True
-
-    else:
-        return True
+    return True
 
 
 def ordered_unique(input_list: list) -> list:
@@ -696,7 +659,7 @@ def ordered_unique(input_list: list) -> list:
     return output_list
 
 
-def get_cluster_size_windows(path: str):
+def get_cluster_size_windows(path: str) -> int:
     """获取Windows的NTFS簇大小"""
     sectorsPerCluster = ctypes.c_ulonglong(0)
     bytesPerSector = ctypes.c_ulonglong(0)
@@ -734,6 +697,54 @@ def clear_screen(hard: bool = True):
 def input_strip(prompt: str = "") -> str:
     """从标准输入中获取用户输入，并去除两端的空白字符。"""
     return input(prompt).strip()
+
+
+def get_prettytable_width(table: PrettyTable) -> int:
+    """获取 PrettyTable 对象的实际打印宽度，注意：表格两边的空格也会被计算在内。"""
+    first_line = table.get_string().splitlines()[0]
+    return len_to_print(first_line)
+
+
+class ResponseChecker:
+    YES_RESPONSES = ("y", "yes")
+    NO_RESPONSES = ("n", "no")
+    VALID_RESPONSES = YES_RESPONSES + NO_RESPONSES
+
+    def __init__(self, input_str: str, default: Literal["yes", "no", "unknown"] = "unknown"):
+        """
+        初始化ResponseChecker对象并判断输入。
+        :param input_str: 用户输入的字符串
+        :param default: 默认值，当输入为空时表示的默认回答，可选值为"yes", "no", "unknown"
+        """
+        self.input_str = input_str.strip().lower()
+        self.default = default
+
+    def is_yes(self) -> bool:
+        """
+        判断输入是否为肯定回答。
+        :return: 如果是肯定回答返回True，否则返回False
+        """
+        if self.input_str == "":
+            return self.default == "yes"
+        return self.input_str in self.YES_RESPONSES
+
+    def is_no(self) -> bool:
+        """
+        判断输入是否为否定回答。
+        :return: 如果是否定回答返回True，否则返回False
+        """
+        if self.input_str == "":
+            return self.default == "no"
+        return self.input_str in self.NO_RESPONSES
+
+    def is_other(self) -> bool:
+        """
+        判断输入是否为其他非确定性回答。
+        :return: 如果是其他回答返回True，否则返回False
+        """
+        if self.input_str == "":
+            return self.default == "unknown"
+        return self.input_str not in self.VALID_RESPONSES
 
 
 #  ----- * 以下是大学时写的函数，之后也没有修改过 * -----
