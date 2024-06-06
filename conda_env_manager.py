@@ -771,7 +771,8 @@ def _get_envsizes_windows(pathlist: list[str]):
         # 获取base环境的大小
         walker_conda_home = os.walk(CONDA_HOME, followlinks=True)  # followlinks=True为了避免islink()判断，提高速度
         _, dirs_conda_home, nondirs_conda_home = next(walker_conda_home)
-        dirs_conda_home.remove("envs")
+        if "envs" in dirs_conda_home:
+            dirs_conda_home.remove("envs")
         get_disk_usage(CONDA_HOME, CONDA_HOME, nondirs_conda_home)
         for root, _, nondirs in walker_conda_home:
             executor.submit(get_disk_usage, CONDA_HOME, root, nondirs)
@@ -962,7 +963,9 @@ def _get_env_basic_infos():
     invalid_env_names = []
     invalid_env_paths = []
 
-    conda_env_homes = [os.path.join(CONDA_HOME, "envs")]
+    conda_env_homes = []
+    if os.path.exists(os.path.join(CONDA_HOME, "envs")):
+        conda_env_homes.append(os.path.join(CONDA_HOME, "envs"))
 
     env_output = subprocess.run([CONDA_EXE_PATH, "env", "list"], capture_output=True, text=True).stdout
     env_list_lines = env_output.splitlines()[2:]
