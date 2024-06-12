@@ -558,7 +558,10 @@ def _get_envpath_last_modified_time(name: str, path: str, pyver: str):
         site_packages_path = os.path.join(path, "lib", f"python{'.'.join(pyver.split('.')[:2])}", "site-packages")
     if name == "base":
         pkgs_path = os.path.join(path, "pkgs")
-        pkgs_mtime = os.path.getmtime(pkgs_path) if os.path.exists(pkgs_path) else 0
+        pkgs_mtime = 0
+        for entry in os.scandir(pkgs_path):  # 忽略 cache 及 urls.txt 的变化，避免总是重新计算 base 环境大小
+            if entry.is_dir() and entry.name != "cache":
+                pkgs_mtime = max(pkgs_mtime, entry.stat().st_mtime)
     else:
         pkgs_mtime = os.path.getmtime(path) if os.path.exists(path) else 0
 
