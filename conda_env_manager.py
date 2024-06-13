@@ -859,13 +859,13 @@ def get_home_sizes(namelist: list[str], pathlist: list[str], pyverlist: list[str
 
     c_pkgs_item_count, c_pkgs_mtime, c_cache_size = _get_base_env_modified_info()
     base_pkgs_info = {"pkgs_item_count": c_pkgs_item_count, "pkgs_mtime": c_pkgs_mtime}
-    last_cache_size = last_base_pkgs_info.pop("cache_size", 0)
+    last_cache_size = last_base_pkgs_info.pop("cache_size", -1)
     if base_pkgs_info != last_base_pkgs_info:
         re_calc_all = True
-    else:
+    if not re_calc_all and last_cache_size != -1:
         name_sizes_dict["base"]["real_usage"] += c_cache_size - last_cache_size
         name_sizes_dict["base"]["total_size"] += c_cache_size - last_cache_size
-    disk_usage += c_cache_size - last_cache_size
+        disk_usage += c_cache_size - last_cache_size
     base_pkgs_info["cache_size"] = c_cache_size
 
     if not namelist_changed and not namelist_deleted and not re_calc_all:
