@@ -574,8 +574,13 @@ def _get_base_env_modified_info():
             if entry.name not in {"cache", "urls.txt"}:
                 pkgs_mtime = max(pkgs_mtime, entry.stat().st_mtime)
                 pkgs_item_count += 1
+    cache_path = os.path.join(pkgs_path, "cache")
+    cache_size = 0
+    if os.path.exists(cache_path):
+        for entry in os.scandir(cache_path):
+            cache_size += entry.stat().st_size
 
-    return pkgs_item_count, pkgs_mtime
+    return pkgs_item_count, pkgs_mtime, cache_size
 
 
 def get_paths_totalsize_list(pathlist: Iterable[str]) -> list[int]:
@@ -852,10 +857,15 @@ def get_home_sizes(namelist: list[str], pathlist: list[str], pyverlist: list[str
                 "pip_mtime": c_pip_mtime,
             }
 
-    c_pkgs_item_count, c_pkgs_mtime = _get_base_env_modified_info()
+    c_pkgs_item_count, c_pkgs_mtime, c_cache_size = _get_base_env_modified_info()
     base_pkgs_info = {"pkgs_item_count": c_pkgs_item_count, "pkgs_mtime": c_pkgs_mtime}
+    last_cache_size = last_base_pkgs_info.pop("cache_size", 0)
     if base_pkgs_info != last_base_pkgs_info:
         re_calc_all = True
+    name_sizes_dict["base"]["real_usage"] += c_cache_size - last_cache_size
+    name_sizes_dict["base"]["total_size"] += c_cache_size - last_cache_size
+    disk_usage += c_cache_size - last_cache_size
+    base_pkgs_info["cache_size"] = c_cache_size
 
     if not namelist_changed and not namelist_deleted and not re_calc_all:
         return name_sizes_dict, disk_usage
