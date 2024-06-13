@@ -549,26 +549,33 @@ def get_cmd(cmdlist: Iterable[str]) -> str:
     return cmd
 
 
-def _get_envpath_last_modified_time(name: str, path: str, pyver: str):
+def _get_envpath_last_modified_time(path: str, pyver: str):
     """获取环境的最后修改时间(conda , pip)，用于判断是否需要重新计算环境大小"""
     conda_meta_path = os.path.join(path, "conda-meta")
     if os.name == "nt":
         site_packages_path = os.path.join(path, "Lib", "site-packages")
     else:  # os.name == "posix":
         site_packages_path = os.path.join(path, "lib", f"python{'.'.join(pyver.split('.')[:2])}", "site-packages")
-    if name == "base":
-        pkgs_path = os.path.join(path, "pkgs")
-        pkgs_mtime = 0
-        if os.path.exists(pkgs_path):
-            for entry in os.scandir(pkgs_path):  # 忽略 cache 及 urls.txt 的变化，避免总是重新计算 base 环境大小
-                if entry.is_dir() and entry.name != "cache":
-                    pkgs_mtime = max(pkgs_mtime, entry.stat().st_mtime)
-    else:
-        pkgs_mtime = os.path.getmtime(path) if os.path.exists(path) else 0
 
+    path_mtime = os.path.getmtime(path) if os.path.exists(path) else 0
     conda_meta_mtime = os.path.getmtime(conda_meta_path) if os.path.exists(conda_meta_path) else 0
     site_packages_mtime = os.path.getmtime(site_packages_path) if os.path.exists(site_packages_path) else 0
-    return max(pkgs_mtime, conda_meta_mtime), site_packages_mtime
+
+    return max(path_mtime, conda_meta_mtime), site_packages_mtime
+
+
+def _get_base_env_modified_info():
+    """获取 base 环境的(pkgs_item_count, pkgs_mtime)信息，用于判断是否需要重新计算所有环境大小"""
+    pkgs_path = os.path.join(CONDA_HOME, "pkgs")
+    pkgs_item_count = 0
+    pkgs_mtime = 0
+    if os.path.exists(pkgs_path):  # 忽略 cache 及 urls.txt 的变化，避免总是重新计算 base 环境大小
+        for entry in os.scandir(pkgs_path):
+            if entry.name not in {"cache", "urls.txt"}:
+                pkgs_mtime = max(pkgs_mtime, entry.stat().st_mtime)
+                pkgs_item_count += 1
+
+    return pkgs_item_count, pkgs_mtime
 
 
 def get_paths_totalsize_list(pathlist: Iterable[str]) -> list[int]:
@@ -819,6 +826,7 @@ def get_home_sizes(namelist: list[str], pathlist: list[str], pyverlist: list[str
     envs_size_data = data_manager.get_data("envs_size_data")
     last_env_sizes = envs_size_data.get("env_sizes", {})
     disk_usage = envs_size_data.get("disk_usage", 0)
+    last_base_pkgs_info = envs_size_data.get("base_pkgs_info", {})
 
     name_sizes_dict = {}
 
@@ -828,20 +836,14 @@ def get_home_sizes(namelist: list[str], pathlist: list[str], pyverlist: list[str
     timestamplist_changed = []
     re_calc_all = False
     for name, path, pyver in zip(namelist, pathlist, pyverlist):
-        c_conda_mtime, c_pip_mtime = _get_envpath_last_modified_time(name, path, pyver)
+        c_conda_mtime, c_pip_mtime = _get_envpath_last_modified_time(path, pyver)
         if name not in last_env_sizes or c_conda_mtime != last_env_sizes[name]["conda_mtime"]:
-            namelist_changed.append(name)
-            pathlist_changed.append(path)
-            timestamplist_changed.append({"conda_mtime": c_conda_mtime, "pip_mtime": c_pip_mtime})
             re_calc_all = True
             break
         elif c_pip_mtime != last_env_sizes[name]["pip_mtime"]:
             namelist_changed.append(name)
             pathlist_changed.append(path)
             timestamplist_changed.append({"conda_mtime": c_conda_mtime, "pip_mtime": c_pip_mtime})
-            if name == "base":
-                re_calc_all = True
-                break
         else:
             name_sizes_dict[name] = {
                 "real_usage": last_env_sizes[name]["real_usage"],
@@ -849,6 +851,11 @@ def get_home_sizes(namelist: list[str], pathlist: list[str], pyverlist: list[str
                 "conda_mtime": c_conda_mtime,
                 "pip_mtime": c_pip_mtime,
             }
+
+    c_pkgs_item_count, c_pkgs_mtime = _get_base_env_modified_info()
+    base_pkgs_info = {"pkgs_item_count": c_pkgs_item_count, "pkgs_mtime": c_pkgs_mtime}
+    if base_pkgs_info != last_base_pkgs_info:
+        re_calc_all = True
 
     if not namelist_changed and not namelist_deleted and not re_calc_all:
         return name_sizes_dict, disk_usage
@@ -865,7 +872,7 @@ def get_home_sizes(namelist: list[str], pathlist: list[str], pyverlist: list[str
         if disk_usage:
             for name, real_usage, total_size in zip(namelist, real_usage_list, total_size_list):
                 c_conda_mtime, c_pip_mtime = _get_envpath_last_modified_time(
-                    name, pathlist[namelist.index(name)], pyverlist[namelist.index(name)]
+                    pathlist[namelist.index(name)], pyverlist[namelist.index(name)]
                 )
                 name_sizes_dict[name] = {
                     "real_usage": real_usage,
@@ -900,7 +907,7 @@ def get_home_sizes(namelist: list[str], pathlist: list[str], pyverlist: list[str
         for name in namelist_deleted:
             disk_usage -= last_env_sizes[name]["real_usage"]
 
-    envs_size_data = {"env_sizes": name_sizes_dict, "disk_usage": disk_usage}
+    envs_size_data = {"env_sizes": name_sizes_dict, "disk_usage": disk_usage, "base_pkgs_info": base_pkgs_info}
     data_manager.update_data("envs_size_data", envs_size_data)
 
     clear_lines_above(1)
