@@ -862,8 +862,9 @@ def get_home_sizes(namelist: list[str], pathlist: list[str], pyverlist: list[str
     last_cache_size = last_base_pkgs_info.pop("cache_size", 0)
     if base_pkgs_info != last_base_pkgs_info:
         re_calc_all = True
-    name_sizes_dict["base"]["real_usage"] += c_cache_size - last_cache_size
-    name_sizes_dict["base"]["total_size"] += c_cache_size - last_cache_size
+    else:
+        name_sizes_dict["base"]["real_usage"] += c_cache_size - last_cache_size
+        name_sizes_dict["base"]["total_size"] += c_cache_size - last_cache_size
     disk_usage += c_cache_size - last_cache_size
     base_pkgs_info["cache_size"] = c_cache_size
 
