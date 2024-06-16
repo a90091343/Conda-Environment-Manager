@@ -18,9 +18,15 @@ from MyTools import *
 
 if os.name == "posix":
     import readline  # 使Linux下的input()函数支持上下左右键
-
-PROGRAME_NAME = "Conda-Environment-Manager"
 USER_HOME = os.path.expanduser("~")
+
+VERSION = "1.8.0"
+PROGRAME_NAME = "Conda-Environment-Manager"
+
+# ***** user settings *****
+SEARCH_CACHE_EXPIRE_MINUTES = 30  # 30 分钟检查一次，搜索功能的索引文件在这期间内使用缓存搜索
+MAX_ENV_SIZE_CALC_SECONDS = 3  # 如果上次重新统计环境大小的耗时超过 3 秒钟，则下次需要手动触发重新统计环境大小
+
 
 allowed_release_names = [
     "CONDA_PREFIX",
@@ -223,10 +229,11 @@ def get_pyvers_from_paths(pypathlist: Iterable[str]) -> list[str | None]:
             try:
                 info = win32api.GetFileVersionInfo(file_path, "\\")
                 # 提取版本号
-                file_version = f"{info['FileVersionMS'] // 65536}.{info['FileVersionMS'] % 65536}.{info['FileVersionLS'] // 65536}.{info['FileVersionLS'] % 65536}"
+                file_version = ".".join(
+                    map(str, divmod(info["FileVersionMS"], 65536) + divmod(info["FileVersionLS"], 65536)),
+                )
                 return file_version
-            except Exception as e:
-                print(f"Error: {e}")
+            except:
                 return ""
 
     async def get_pyver(pypath: str):
@@ -640,10 +647,6 @@ def _get_envsizes_linux(pathlist: list[str]):
     return real_usage_list, total_size_list, disk_usage
 
 
-ENV_SIZE_CALC_ENABLED_WIN = False
-ENV_SIZE_NEED_RECALC_WIN = False
-
-
 def _get_envsizes_windows(pathlist: list[str]):
     """Windows下获取各环境的磁盘占用情况。
     <Return> tuple: 包含以下信息的元组：
@@ -651,10 +654,6 @@ def _get_envsizes_windows(pathlist: list[str]):
         - total_size_list (list[int]): 环境表观总大小列表。
         - disk_usage (int): Conda 环境总磁盘占用大小。
     """
-    global ENV_SIZE_CALC_ENABLED_WIN, ENV_SIZE_NEED_RECALC_WIN
-    if not ENV_SIZE_CALC_ENABLED_WIN:
-        ENV_SIZE_NEED_RECALC_WIN = True
-        return [0] * len(pathlist), [0] * len(pathlist), 0
 
     from threading import Event, Lock, Thread
     from concurrent.futures import ThreadPoolExecutor
@@ -695,9 +694,12 @@ def _get_envsizes_windows(pathlist: list[str]):
 
         def stop(self):
             self.is_running.clear()  # 清除运行信号
-            self._show_process()
+            clear_lines_above(1)  # 覆盖 “[提示] 正在计算环境大小及磁盘占用情况” 这条提示信息
+            set_terminal_text_style("LIGHT_YELLOW")
+            self._show_process(finished=True)
+            reset_terminal_text_style()
 
-        def _show_process(self):
+        def _show_process(self, finished=False):
             if self.num_files:
                 num_blocks = int(self.count / self.num_files * self.bar_length)
                 num_blocks = min(self.bar_length, num_blocks)
@@ -712,9 +714,9 @@ def _get_envsizes_windows(pathlist: list[str]):
                 bar = "|" + "·" * self.idx + "#" + "·" * (self.bar_length - self.idx - 1) + "|"
                 self.idx = (self.idx + 1) % self.bar_length
 
-            size_str = " - Apparent Size: " + print_fsize_smart(self.size)
+            size_str = "Apparent Size: " + print_fsize_smart(self.size)
 
-            num_files_str = " - Files: " + f"{self.count:,}"
+            num_files_str = "Files: " + f"{self.count:,}"
 
             # 计算已消耗时间
             elapsed_time = time.time() - self.start_time
@@ -739,10 +741,10 @@ def _get_envsizes_windows(pathlist: list[str]):
             extra_info = f"[{elapsed_time_str}<{remaining_time_str}; {file_count_speed:,} f/s]"
 
             clear_lines_above(1)
-            print(bar + size_str + num_files_str + " " + extra_info, flush=True)
-
-    ENV_SIZE_CALC_ENABLED_WIN = False
-    ENV_SIZE_NEED_RECALC_WIN = False
+            if not finished:
+                print(bar + " - " + size_str + " - " + num_files_str + " " + extra_info)
+            else:
+                print(size_str + " | " + num_files_str + " " + extra_info)
 
     num_files = 0
     real_usage_list = [0] * len(pathlist)
@@ -808,6 +810,10 @@ def _get_envsizes_windows(pathlist: list[str]):
     return real_usage_list, total_size_list, disk_usage
 
 
+ENV_SIZE_RECALC_FORCE_ENABLE = False
+ENV_SIZE_RECALC_NEED_CONFIRM = False
+
+
 def get_home_sizes(namelist: list[str], pathlist: list[str], pyverlist: list[str]):
     """
     获取环境的大小信息。
@@ -826,12 +832,11 @@ def get_home_sizes(namelist: list[str], pathlist: list[str], pyverlist: list[str
     """
 
     # 1. 因为同一conda包的多次安装只会在pkgs目录下创建一次，其余环境均为硬链接，故实际磁盘占用会远小于表观大小；
-    # 2. Win下默认不计算，需用户手动开启。
 
     envs_size_data = data_manager.get_data("envs_size_data")
     last_env_sizes = envs_size_data.get("env_sizes", {})
     disk_usage = envs_size_data.get("disk_usage", 0)
-    last_base_pkgs_info = envs_size_data.get("base_pkgs_info", {})
+    calc_cost_time = envs_size_data.get("calc_cost_time", 0)
 
     name_sizes_dict = {}
 
@@ -858,6 +863,7 @@ def get_home_sizes(namelist: list[str], pathlist: list[str], pyverlist: list[str
             }
 
     c_pkgs_item_count, c_pkgs_mtime, c_cache_size = _get_base_env_modified_info()
+    last_base_pkgs_info = data_manager.get_data("base_pkgs_info")
     base_pkgs_info = {"pkgs_item_count": c_pkgs_item_count, "pkgs_mtime": c_pkgs_mtime}
     last_cache_size = last_base_pkgs_info.pop("cache_size", -1)
     if base_pkgs_info != last_base_pkgs_info:
@@ -867,20 +873,25 @@ def get_home_sizes(namelist: list[str], pathlist: list[str], pyverlist: list[str
         name_sizes_dict["base"]["total_size"] += c_cache_size - last_cache_size
         disk_usage += c_cache_size - last_cache_size
     base_pkgs_info["cache_size"] = c_cache_size
+    data_manager.update_data("base_pkgs_info", base_pkgs_info)
 
     if not namelist_changed and not namelist_deleted and not re_calc_all:
         return name_sizes_dict, disk_usage
 
     print(f"{LIGHT_YELLOW('[提示]')} 正在计算环境大小及磁盘占用情况，请稍等...")
 
+    global ENV_SIZE_RECALC_NEED_CONFIRM, ENV_SIZE_RECALC_FORCE_ENABLE
     if re_calc_all:
         name_sizes_dict.clear()
-        if os.name == "posix":
-            real_usage_list, total_size_list, disk_usage = _get_envsizes_linux(pathlist)
-        else:  # os.name == "nt":
-            real_usage_list, total_size_list, disk_usage = _get_envsizes_windows(pathlist)
+        if ENV_SIZE_RECALC_FORCE_ENABLE or calc_cost_time <= MAX_ENV_SIZE_CALC_SECONDS:
+            ENV_SIZE_RECALC_FORCE_ENABLE = False
+            ENV_SIZE_RECALC_NEED_CONFIRM = False
+            re_calc_start_time = time.time()
+            if os.name == "posix":
+                real_usage_list, total_size_list, disk_usage = _get_envsizes_linux(pathlist)
+            else:  # os.name == "nt":
+                real_usage_list, total_size_list, disk_usage = _get_envsizes_windows(pathlist)
 
-        if disk_usage:
             for name, real_usage, total_size in zip(namelist, real_usage_list, total_size_list):
                 c_conda_mtime, c_pip_mtime = _get_envpath_last_modified_time(
                     pathlist[namelist.index(name)], pyverlist[namelist.index(name)]
@@ -891,7 +902,11 @@ def get_home_sizes(namelist: list[str], pathlist: list[str], pyverlist: list[str
                     "conda_mtime": c_conda_mtime,
                     "pip_mtime": c_pip_mtime,
                 }
-        else:  # (此情况应仅限Windows)未获取磁盘使用量，重置所有环境的大小
+
+            calc_cost_time = time.time() - re_calc_start_time
+        else:  # 未获取磁盘使用量，重置所有环境的大小
+            ENV_SIZE_RECALC_NEED_CONFIRM = True
+            disk_usage = 0
             for name in namelist:
                 name_sizes_dict[name] = {
                     "real_usage": 0,
@@ -918,7 +933,7 @@ def get_home_sizes(namelist: list[str], pathlist: list[str], pyverlist: list[str
         for name in namelist_deleted:
             disk_usage -= last_env_sizes[name]["real_usage"]
 
-    envs_size_data = {"env_sizes": name_sizes_dict, "disk_usage": disk_usage, "base_pkgs_info": base_pkgs_info}
+    envs_size_data = {"env_sizes": name_sizes_dict, "disk_usage": disk_usage, "calc_cost_time": calc_cost_time}
     data_manager.update_data("envs_size_data", envs_size_data)
 
     clear_lines_above(1)
@@ -1055,16 +1070,6 @@ def get_env_infos() -> dict[str, Union[int, list]]:
     env_realusage_list = [name_sizes_dict[i]["real_usage"] for i in env_namelist]
     env_totalsize_list = [name_sizes_dict[i]["total_size"] for i in env_namelist]
     total_apparent_size = sum(env_totalsize_list)
-
-    # assert (
-    #     len(env_namelist)
-    #     == len(env_pyverlist)
-    #     == len(env_lastmodified_timelist)
-    #     == len(env_installation_time_list)
-    #     == len(env_pathlist)
-    #     == len(env_realusage_list)
-    #     == len(env_totalsize_list)
-    # )
 
     env_infos_dict = {
         "env_num": env_num,  # int
@@ -1318,8 +1323,8 @@ def _get_main_prompt_str(valid_env_num: int, display_mode: int) -> str:
     """打印主界面的用户输入提示。"""
 
     main_prompt_str = f"""
-允许的操作指令如下 (按{BOLD(YELLOW("[Q]"))}以退出, {BOLD(LIGHT_WHITE("<Tab>"))}切换当前显示模式 {BOLD(LIGHT_CYAN(display_mode))}):
-  - 激活环境对应命令行输入编号{BOLD(LIGHT_YELLOW(f"[1-{valid_env_num}]"))};浏览环境主目录输入{BOLD(LIGHT_GREEN("[=编号]"))};
+允许的操作指令如下 (按{BOLD(YELLOW("[Q]"))}以退出, {BOLD(LIGHT_WHITE("[Tab]"))}切换当前显示模式 {BOLD(LIGHT_CYAN(display_mode))}):
+  - 激活环境对应命令行输入编号<{BOLD(LIGHT_YELLOW(f"1-{valid_env_num}"))}>;浏览环境主目录输入<{BOLD(LIGHT_GREEN("@编号"))}>;
   - 删除环境按{BOLD(RED("[-]"))};新建环境按{BOLD(LIGHT_GREEN("[+]"))};重命名环境按{BOLD(LIGHT_BLUE("[R]"))};复制环境按{BOLD(LIGHT_CYAN("[P]"))};
   - 显示并回退至环境的历史版本按{BOLD(LIGHT_MAGENTA("[V]"))};
   - 更新环境的所有 Conda 包按{BOLD(GREEN("[U]"))};
@@ -1328,22 +1333,24 @@ def _get_main_prompt_str(valid_env_num: int, display_mode: int) -> str:
   - 检查环境完整性并显示健康报告按{BOLD(LIGHT_GREEN("[H]"))};
   - 搜索 Conda 软件包按{BOLD(LIGHT_YELLOW("[S]"))};"""
 
-    # a. Windows Only
-    if os.name == "nt" and ENV_SIZE_NEED_RECALC_WIN:
-        main_prompt_str += f"\n  - (仅限Windows) 显示环境大小及磁盘占用情况按{LIGHT_GREEN('[D]')};"  # Windows Only
+    # a. Extras
+    if ENV_SIZE_RECALC_NEED_CONFIRM:
+        calc_cost_time = data_manager.get_data("envs_size_data").get("calc_cost_time", 0)
+        cost_prompt = f"(约 {calc_cost_time:.0f} 秒) " if calc_cost_time > 0 else ""
+        main_prompt_str += f"\n  * {cost_prompt}重新统计环境大小及磁盘占用情况按{BOLD(LIGHT_GREEN('[D]'))};"
 
     main_prompt_str += "\n"
     return main_prompt_str
 
 
-def _prompt_and_validate_command(allowed_commands: list[str], immediately_returned_chars: Iterable[str]) -> str:
+def _prompt_and_validate_command(allowed_inputs: list[str], immediately_returned_chars: Iterable[str]) -> str:
     """
-    提示并放回通过验证的用户输入的指令字符串，或者立即返回由 immediately_returned_chars 指定的字符。
+    提示并放回通过验证的用户输入的字符串，或者立即返回由 immediately_returned_chars 指定的字符。
         此函数用于提示用户输入，并根据给定的允许输入列表验证输入是否合法，不合法则重新提示用户输入。
             内部get_command函数使用get_char()获取输入，最多支持获取{_MAX_WIDTH-len(prompt)}个字符。
 
     参数：
-        allowed_commands (list[str]): 允许的输入指令列表。
+        allowed_inputs (list[str]): 允许的输入列表。
         immediately_returned_chars (list[str]): 立即返回的字符列表。
 
     完整的用户提示信息如下：
@@ -1365,11 +1372,10 @@ def _prompt_and_validate_command(allowed_commands: list[str], immediately_return
         cursor_pos = 0
         print(prompt, end="", flush=True)
         while char := get_char():
-            if char in immediately_returned_chars:  # 按下了立即返回的字符
+            if not user_inp and char in immediately_returned_chars:  # 按下了立即返回的字符
                 user_inp = char
                 break
             if char == "\r":  # 按下回车键
-                print(flush=True)
                 break
             elif char == "\x03":  # 按下Ctrl+C
                 print()
@@ -1403,12 +1409,13 @@ def _prompt_and_validate_command(allowed_commands: list[str], immediately_return
                     else:
                         refresh_line(prompt, user_inp, cursor_pos)
 
+        print()
         return user_inp.strip(" ")
 
-    allowed_commands.extend(immediately_returned_chars)
+    allowed_inputs.extend(immediately_returned_chars)
 
-    first_prompt_str = "请输入对应指令，以回车结束："
-    error_prompt_format = "输入的指令 {0} 不合法，请重新输入，以回车结束："
+    first_prompt_str = "请按下指令键，或输入并回车："
+    error_prompt_format = "输入 {0} 不合法，请重新按键或输入："
 
     idx = 0
     while True:
@@ -1420,7 +1427,7 @@ def _prompt_and_validate_command(allowed_commands: list[str], immediately_return
         last_prompt_str = prompt_str
 
         inp = get_command()
-        if inp in allowed_commands:
+        if inp in allowed_inputs:
             clear_lines_above(get_printed_line_count(last_prompt_str) + 1)
             return inp
 
@@ -1432,42 +1439,11 @@ def show_info_and_get_input(env_infos_dict) -> str:
     ***** 注意 *****
         此函数是整个脚本的三个主函数其二，负责主循环中 “显示主界面信息和获取用户指令” 功能。
     """
-
     display_mode = 1
 
     env_num = env_infos_dict["env_num"]
     valid_env_num = env_infos_dict["valid_env_num"]
     others_env_pathlist = env_infos_dict["others_env_pathlist"]
-
-    allowed_commands = [
-        "-",
-        "+",
-        "I",
-        "i",
-        "R",
-        "r",
-        "J",
-        "j",
-        "C",
-        "c",
-        "V",
-        "v",
-        "U",
-        "u",
-        "S",
-        "s",
-        "Q",
-        "q",
-        "P",
-        "p",
-        "H",
-        "h",
-        "\x03",
-    ]
-    allowed_commands.extend(str(i) for i in range(1, valid_env_num + 1))  # 仅允许激活有效的环境
-    allowed_commands.extend(f"={str(i)}" for i in range(1, env_num + 1))
-    if os.name == "nt" and ENV_SIZE_NEED_RECALC_WIN:
-        allowed_commands.extend(["d", "D"])
 
     # 1.1 输出<可能的>其他发行版与不受支持的环境
     _print_other_envs(others_env_pathlist)
@@ -1488,11 +1464,18 @@ def show_info_and_get_input(env_infos_dict) -> str:
 
     __printRegularTransactionSet()
 
-    # 3. 提示用户输入对应指令
+    # 3. 提示用户按下或输入对应指令
     _CYCLE_DISPLAY_MODE = "\t"
+    allowed_commands = ["-", "_", "+", "=", "I", "R", "J", "C", "V", "U", "S", "Q", "P", "H", _CYCLE_DISPLAY_MODE]
+    if ENV_SIZE_RECALC_NEED_CONFIRM:
+        allowed_commands.append("D")
+    allowed_commands += [char.lower() for char in allowed_commands if char.isupper()]
+    allowed_inputs = [str(i) for i in range(1, valid_env_num + 1)]  # 仅允许激活有效的环境
+    allowed_inputs.extend(f"@{str(i)}" for i in range(1, env_num + 1))
+
     while True:
         # 设置了immediately_returned_chars后，inp最多只能接受一行内的字符
-        inp = _prompt_and_validate_command(allowed_commands, [_CYCLE_DISPLAY_MODE])
+        inp = _prompt_and_validate_command(allowed_inputs, allowed_commands)
         if inp == _CYCLE_DISPLAY_MODE:
             display_mode = display_mode % 3 + 1
             __printRegularTransactionSet(cls=True)
@@ -1504,10 +1487,10 @@ def show_info_and_get_input(env_infos_dict) -> str:
 
 def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
     """
-    根据用户输入的值执行相应的操作，并返回两种状态码。
+    根据用户按下或输入的值执行相应的操作，并返回两种状态码。
 
     参数：
-        inp (str): 用户输入的指令。
+        inp (str): 用户按下或输入的指令。
         env_infos_dict (dict): 环境信息字典。
 
     返回：
@@ -1558,8 +1541,8 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
         return True
 
     res = 0
-    # 如果输入的是[-]，则删除环境
-    if inp == "-":
+    # 如果按下的是[-]或[_]，则删除环境
+    if inp in ("-", "_"):
         if not all(env_validity_list):
             invalid_env_names = [env_namelist[i] for i in range(env_num) if not env_validity_list[i]]
             invalid_env_paths = [env_pathlist[i] for i in range(env_num) if not env_validity_list[i]]
@@ -1637,8 +1620,8 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 print(LIGHT_GREEN(f"[提示] 已清除卸载的环境 {LIGHT_CYAN(name)} 的 Jupyter 内核注册"))
 
         res = 1
-    # 如果输入的是[+]，则新建环境
-    elif inp == "+":
+    # 如果按下的是[+]或[=]，则新建环境
+    elif inp in ("+", "="):
         print(f"(1) 请输入想要{BOLD(LIGHT_GREEN('新建'))}的环境的名称，以回车结束: ")
         new_name = get_valid_input(
             ">>> ",
@@ -1739,8 +1722,8 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
             )
             subprocess.run(command, shell=True)
         res = 1
-    # 如果输入的是[I]，则将指定环境注册到Jupyter
-    elif inp in ["I", "i"]:
+    # 如果按下的是[I]，则将指定环境注册到Jupyter
+    elif inp.upper() == "I":
         print(
             f"(1) 请输入想要将 Jupyter 内核{BOLD(CYAN('注册'))}到用户的环境编号（或all=全部），多个以空格隔开，以回车结束: "
         )
@@ -1796,8 +1779,8 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 )
             subprocess.run(command, shell=True)
         res = 1
-    # 如果输入的是[R]，则重命名环境
-    elif inp in ["R", "r"]:
+    # 如果按下的是[R]，则重命名环境
+    elif inp.upper() == "R":
         print(f"(1) 请输入想要{BOLD(LIGHT_BLUE('重命名'))}的环境的编号，多个以空格隔开，以回车结束: ")
         inp = input_strip(f"[2-{valid_env_num}] >>> ")
         env_nums = [int(i) - 1 for i in inp.split() if i.isdigit() and 1 <= int(i) <= valid_env_num]
@@ -1876,8 +1859,8 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 subprocess.run(command, shell=True)
                 print(LIGHT_GREEN(f"[提示] 已重新注册新环境 {LIGHT_CYAN(new_name)} 的 Jupyter 内核！"))
         res = 1
-    # 如果输入的是[P]，则复制环境
-    elif inp in ["P", "p"]:
+    # 如果按下的是[P]，则复制环境
+    elif inp.upper() == "P":
         print(f"(1) 请输入想要{BOLD(LIGHT_CYAN('复制'))}的环境的编号，多个以空格隔开，以回车结束: ")
         inp = input_strip(f"[1-{valid_env_num}] >>> ")
         env_nums = [int(i) - 1 for i in inp.split() if i.isdigit() and 1 <= int(i) <= valid_env_num]
@@ -1907,8 +1890,8 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
             command = get_cmd([f'mamba create -n "{new_name}" --clone "{name}" --quiet'])
             subprocess.run(command, shell=True)
         res = 1
-    # 如果输入的是[J]，则显示、管理所有已注册的Jupyter环境及清理弃用项
-    elif inp in ["J", "j"]:
+    # 如果按下的是[J]，则显示、管理所有已注册的Jupyter环境及清理弃用项
+    elif inp.upper() == "J":
         command = [CONDA_EXE_PATH, "list", "--json"]
         if subprocess.run(command, capture_output=True, text=True).stdout.find("ipykernel") == -1:
             print(LIGHT_YELLOW("[提示] 未检测到 Jupyter 命令，正尝试向 base 环境安装 ipykernel..."))
@@ -2045,7 +2028,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
             subprocess.run(command, shell=True)
         res = 1
     # 对应环境查看并回退至历史版本按[V]
-    elif inp in ["V", "v"]:
+    elif inp.upper() == "V":
         print(f"(1) 请输入需要查看及回退{BOLD(LIGHT_MAGENTA('历史版本'))}的环境编号，以回车结束: ")
         inp = get_valid_input(
             f"[1-{valid_env_num}] >>> ",
@@ -2086,8 +2069,8 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
             subprocess.run(command, shell=True)
 
         res = 1
-    # 如果输入的是[C]，则运行pip cache purge和mamba clean --all -y来清空所有pip与conda缓存
-    elif inp in ["C", "c"]:
+    # 如果按下的是[C]，则运行pip cache purge和mamba clean --all -y来清空所有pip与conda缓存
+    elif inp.upper() == "C":
         print(LIGHT_YELLOW("[提示] 加载缓存信息中，请稍等..."))
         command = get_cmd(["mamba clean --all --dry-run --json --quiet", "pip cache dir"])
         result_text = subprocess.run(
@@ -2227,8 +2210,8 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
             subprocess.run(command, shell=True)
 
         res = 1
-    # 如果输入的是[U]，则更新指定环境的所有包
-    elif inp in ["U", "u"]:
+    # 如果按下的是[U]，则更新指定环境的所有包
+    elif inp.upper() == "U":
         print(LIGHT_YELLOW("[提示] 慎用，请仔细检查更新前后的包对应源的变化！"))
         print(f"(1) 请输入想要{BOLD(GREEN('更新'))}的环境的编号（或all=全部），多个以空格隔开，以回车结束: ")
         inp = input_strip(f"[1-{valid_env_num} | all] >>> ")
@@ -2287,8 +2270,8 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
             command = get_cmd([command_str])
             subprocess.run(command, shell=True)
         res = 1
-    # 如果输入的是[S]，则搜索指定Python版本下的包
-    elif inp in ["S", "s"]:
+    # 如果按下的是[S]，则搜索指定Python版本下的包
+    elif inp.upper() == "S":
         if not IS_MAMBA and (not LIBMAMBA_SOLVER_VERSION or Version(LIBMAMBA_SOLVER_VERSION) < Version("23.9")):
             print(
                 LIGHT_YELLOW(
@@ -2884,7 +2867,6 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
 
         def search_pkgs_main(target_py_version: str):
             """搜索Conda包任务的主函数"""
-            INDEX_CHECK_INTERVAL = 30  # 30分钟检查一次，搜索功能的索引文件在这期间内使用缓存搜索
 
             print("-" * min(100, fast_get_terminal_size().columns))
             print(
@@ -2927,9 +2909,9 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
             total_channels = add_channels + ["pytorch", "nvidia", "intel", "conda-forge", "defaults"]
             total_channels = ordered_unique(total_channels)
             search_meta_data = data_manager.get_data("search_meta_data")
-            if search_meta_data.get("last_update_time", 0) >= (time.time() - INDEX_CHECK_INTERVAL * 60) and set(
-                total_channels
-            ).issubset(search_meta_data.get("total_channels", [])):
+            if search_meta_data.get("last_update_time", 0) >= (
+                time.time() - SEARCH_CACHE_EXPIRE_MINUTES * 60
+            ) and set(total_channels).issubset(search_meta_data.get("total_channels", [])):
                 command_str = f'mamba repoquery search "{search_pkg_info}" {" ".join(["-c "+i for i in total_channels])} --json --quiet --use-index-cache'
                 search_meta_data["total_channels"] = list(
                     set(total_channels) | set(search_meta_data.get("total_channels", []))
@@ -3796,7 +3778,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                     if user_options["display_mode"] != 1:
                         while user_options["select_mode"]:
                             num_lines += __count_and_print(
-                                f"(i) 请输入要查看详细信息的包对应编号（带{LIGHT_CYAN('=')}号则显示安装命令行并拷贝到剪贴板）: "
+                                f"(i) 请输入要查看详细信息的包对应编号（带{LIGHT_CYAN('@')}号则显示安装命令行并拷贝到剪贴板）: "
                             )
                             key = input_strip(">>> ")
                             num_lines += 1
@@ -3838,8 +3820,8 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                                         pkginfo_dict_copy.pop("constrains")
                                     print_str = json.dumps(pkginfo_dict_copy, indent=4, skipkeys=True)
                                     num_lines += __count_and_print(print_str)
-                            elif key.find("=") != -1:
-                                key = key.replace("=", "")
+                            elif key.find("@") != -1:
+                                key = key.replace("@", "")
                                 if key.isdigit() and 1 <= int(key) <= len(pkginfos_list):
                                     clear_lines_above(num_lines)
                                     num_lines = 0
@@ -3853,16 +3835,14 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                                     if channel not in ("defaults", "conda-forge"):
                                         print_str += f" -c {channel}"
                                     num_lines += __count_and_print(print_str)
-                                    if os.name == "posix":
-                                        if os.system(f'echo "{print_str}" | xclip -selection clipboard') == 0:
-                                            num_lines += __count_and_print(
-                                                LIGHT_GREEN("[提示] 安装命令已拷贝到剪贴板！")
-                                            )
-                                    elif os.name == "nt":
-                                        if os.system(f'echo "{print_str}" | clip') == 0:
-                                            num_lines += __count_and_print(
-                                                LIGHT_GREEN("[提示] 安装命令已拷贝到剪贴板！")
-                                            )
+                                    if os.name == "nt":
+                                        cmds = ["clip"]
+                                    else:  # os.name == "posix"
+                                        cmds = ["xclip", "-selection", "clipboard"]
+                                    if subprocess.run(cmds, input=print_str, text=True).returncode == 0:
+                                        num_lines += __count_and_print(
+                                            LIGHT_GREEN("[提示] 安装命令已拷贝到剪贴板！")
+                                        )
 
                             else:
                                 clear_lines_above(2)
@@ -4151,8 +4131,8 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
             if not ResponseChecker(inp, default="yes").is_yes():
                 break
         res = 1
-    # 如果输入的是[H]，则显示由"conda doctor"命令出具的Conda环境健康报告
-    elif inp in ["H", "h"]:
+    # 如果按下的是[H]，则显示由"conda doctor"命令出具的Conda环境健康报告
+    elif inp.upper() == "H":
         if not CONDA_VERSION or Version(CONDA_VERSION) < Version("23.5.0"):
             print(
                 LIGHT_RED(
@@ -4205,14 +4185,14 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
 
         input_strip(f"{LIGHT_GREEN('[完成]')} 检查完毕，请按<回车键>继续...")
         res = 1
-    # 如果输入的是[D]，且为Windows，则计算所有环境的大小及真实磁盘占有量
-    elif inp in ["D", "d"]:
-        global ENV_SIZE_CALC_ENABLED_WIN
-        ENV_SIZE_CALC_ENABLED_WIN = True
-        clear_screen(hard=False)
+    # 如果按下的是[D]，则计算所有环境的大小及真实磁盘占有量
+    elif inp.upper() == "D":
+        global ENV_SIZE_RECALC_FORCE_ENABLE
+        ENV_SIZE_RECALC_FORCE_ENABLE = True
+        clear_lines_above(1)
         res = 1
     # 如果输入的是[=编号]，则浏览环境主目录
-    elif inp.find("=") != -1:
+    elif inp.find("@") != -1:
         inp = int(inp[1:])
         name = env_namelist[inp - 1]
         print(LIGHT_GREEN(f"[提示] 已在文件资源管理器中打开环境 {LIGHT_CYAN(name)} 的主目录:"))
@@ -4223,8 +4203,8 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
         else:
             subprocess.run(["xdg-open", env_path])
         res = 1
-    # 如果输入的是[Q]，则退出
-    elif inp in ["Q", "q", "\x03"]:
+    # 如果按下的是[Q]，则退出
+    elif inp.upper() == "Q":
         res = 0
     # 如果输入的是数字[编号]，则进入对应的环境
     else:
@@ -4276,7 +4256,7 @@ def main(workdir):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Conda/Mamba 发行版环境管理工具")
+    parser = argparse.ArgumentParser(description=f"Conda/Mamba 发行版环境管理工具 v{VERSION}")
     parser.add_argument(
         "-d",
         "-D",
@@ -4397,5 +4377,6 @@ if __name__ == "__main__":
 # 2024-5-15 v1.7.rc2 修复了一些bug；优化了一些显示与操作逻辑；
 # 2024-5-16 ~ 2024-5-19 v1.7 (Release) 优化了搜索结果界面的显示，增加了适应终端宽度的功能; fix bugs; 正式发布版
 # 2024-5-28 v1.7.3 在 Github 上正式发布的版本（已验证各功能的有效性）
+# 2024-6-13 v1.8.0 优化并统一了Linux和Windows下的环境大小计算逻辑，并指定时间限制：只要上一次用时超3秒，下一次则需用户按<D>确认才计算
 # **********************
 # 致谢：OpenAI ChatGPT，Github Copilot
