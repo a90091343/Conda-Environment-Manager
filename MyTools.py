@@ -177,8 +177,8 @@ def clear_lines_above(num_lines: int):
     清除并覆盖指定行数以上的输出，注意：只能清除当前显示区域内的行，不能清除已经滚动出显示区域的内容。
     :param num_lines: int, 要清除并覆盖的行数
     """
-    for _ in range(num_lines):
-        print("\033[F\033[K", end="")
+    if num_lines > 0:
+        print(f"\033[{num_lines}F\033[J", end="")
 
 
 def get_folder_size(folder_path: str, verbose: bool = True) -> int:

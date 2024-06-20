@@ -35,37 +35,36 @@
 |-------------------------------------------|---------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | 激活环境命令行                                  | [序号]        | 在**当前工作目录**(由`-d`参数指定)下激活对应的Conda环境的命令行，以进行命令操作                                                                                                                                                                              |
 | 浏览环境主目录                            | [=]+[序号]       | 打开文件资源管理器浏览指定环境的主目录                                                                                                                                                                                       |
-| (*特色*) 搜索 Conda 软件包           | [S]           | 搜索指定Python版本下的软件包，迅速找到你想要的包。功能强大，界面简洁，简单易用。<br>- **概览模式** 轻松速览信息汇总(Python最大最小版本，cuda最大支持)，<br>- **精简/详细模式** (版本、Channel、Python版本、cuda版本、包大小、时间戳等信息)，准确定位想要的包；<br>1. 底层调用`mamba repoquery search`(或conda >=23.9也支持)，查询速度快；<br>2. 支持版本比较式过滤，查找更加灵活；<br>3. 支持显示内容匹配终端宽度。  |
+| (*特色*) 搜索 Conda 软件包           | [S]           | 搜索指定Python版本下的软件包，迅速找到你想要的包。功能强大，界面简洁，简单易用。<br>- **概览模式** 轻松速览信息汇总(Python最大最小版本，cuda最大支持)，<br>- **精简/详细模式** (版本、Channel、Python版本、cuda版本、包大小、时间戳等信息)，准确定位想要的包；<br>1. 在受支持的基环境(mamba 或 conda >=23.9)下调用`repoquery search`，加快查询速度；<br>2. 支持版本比较式过滤，查找更加灵活；<br>3. 支持显示内容匹配终端宽度。  |
 
 ### 界面展示
 
 **主界面 (3种展示模式)**
 
-![主界面](images/主界面.gif)
+![主界面](extras/images/主界面.gif)
 
 **搜索-概览**
 
-![搜索-概览](images/搜索-概览.png)
+![搜索-概览](extras/images/搜索-概览.png)
 
 **搜索-精简显示**
 
-![搜索-精简显示](images/搜索-精简显示.png)
+![搜索-精简显示](extras/images/搜索-精简显示.png)
 
 ### 开始使用
 
 - #### 方法一 使用源码文件
-   1. 有 Python >= **3.9** 的用户级安装；
+   1. 有 Python >= **3.10** 的用户级安装；
       
-      在此Python环境下安装依赖：
-
-      1.1 win运行 `pip install --user -r requirements-win.txt`
-
-      1.2 linux运行 `pip install --user -r requirements-linux.txt`
+      在此 Python 环境下安装依赖：
+   
+      `python scripts/install_requirements.py`
 
    2. 已安装了anaconda，Miniforge，miniconda等conda/mamba包管理环境；
    
    3. 下载 **conda_env_manager.py**, **MyTools.py**, **ColorStr.py** 3个文件于同一目录下，运行：
-      `python conda_env_manager.py` 即可
+      
+      `python conda_env_manager.py`
       
       3.1 命令行使用提示：
       
@@ -107,40 +106,40 @@
 |--------------------------------------------|--------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | Activate Environment Command Line          | [Number]     | Activate the corresponding Conda environment in the **current working directory** (specified by the `-d` parameter) to perform command operations                                                                                                                                     |
 | Browse Environment Home Directory          | [=]+[Number]    | Open the file explorer to browse the home directory of the specified environment                                                                                                                                                      |
-| (***Feature***) Search Conda Packages            | [S]          | Search for packages for a specific Python version, quickly find the package you want. Powerful, simple interface, easy to use.<br>- **Overview Mode**: Quickly summarize information (maximum and minimum Python versions, maximum CUDA support),<br>- **Concise/Detailed Mode**: (version, channel, Python version, CUDA version, package size, timestamp, etc.) accurately locate the desired package;<br>1. calls `mamba repoquery search` (or supports conda >=23.9) under the hood, fast query speed;<br>2. supports version comparison filtering for more flexible searching;<br>3. Support content display matching terminal width. |
+| (***Feature***) Search Conda Packages            | [S]          | Search for packages for a specific Python version, quickly find the package you want. Powerful, simple interface, easy to use.<br>- **Overview Mode**: Quickly summarize information (maximum and minimum Python versions, maximum CUDA support),<br>- **Concise/Detailed Mode**: (version, channel, Python version, CUDA version, package size, timestamp, etc.) accurately locate the desired package;<br>1. Use `repoquery search` in supported base env (mamba or conda >=23.9) to speed up the query;<br>2. supports version comparison filtering for more flexible searching;<br>3. Support content display matching terminal width. |
 
 ### Interface Display
 
 **Main Interface (3 Display Modes)**
 
-![Main](images/Main.gif)
+![Main](extras/images/Main.gif)
 
 **Search - Overview**
 
-![Search-Overview](images/Search-Overview.png)
+![Search-Overview](extras/images/Search-Overview.png)
 
 **Search - Simplified Display**
 
-![Search-Simplified_Display](images/Search-Simplified_Display.png)
+![Search-Simplified_Display](extras/images/Search-Simplified_Display.png)
 
 ### Getting Started
 
 - #### Method 1: Using the Source Code Files
-   1. Python >= **3.9** installation at user level is required.
+   1. Python >= **3.10** installation at user level is required.
 
-      Install dependencies in this Python environment by:
+      Install dependencies in this Python environment by run:
 
-      1.1 For Windows, run `pip install --user -r requirements-win.txt`.
-
-      1.2 For Linux, run `pip install --user -r requirements-linux.txt`.
+      `python scripts/install_requirements.py`
 
    2. Anaconda, Miniforge, miniconda, or any conda/mamba package management environment must be installed.
 
    3. Download the files **conda_env_manager.py**, **MyTools.py**, **ColorStr.py** and **english_translator.py**, placing them in the same directory.
 
-      Run `python english_translator.py` now to translate the script to English.
+      Run `python scripts/english_translator.py` now to translate the script to English.
 
-   4. If translated successfully, then run: `python conda_env_manager.py`.
+   4. If translated successfully, then run: 
+   
+      `python conda_env_manager.py`
 
       4.1 Command-line Usage Tips:
    

@@ -1,6 +1,7 @@
-# v1.0.1
+# v1.8.0
 import re
-from ColorStr import *
+import os
+import sys
 
 
 def translate_script(input_file, output_file, translation_dict):
@@ -22,8 +23,7 @@ def translate_script(input_file, output_file, translation_dict):
 
 # Thanks to GitHub Copilot for providing the original version of the translation_dict.
 translation_dict = {
-    "请输入对应指令，以回车结束：": "Please enter the corresponding command, and press <Enter> to end:",
-    "输入的指令 {0} 不合法，请重新输入，以回车结束：": "The entered command {0} is invalid, please re-enter, and press <Enter> to end:",
+    "请按下指令键，或输入命令并回车：": "Please press the command key, or enter the command:",
     "无法读取快捷方式文件：": "Unable to read shortcut file: ",
     "[错误] 未检测到 Conda/Mamba 发行版的安装，请先安装相关发行版后再运行此脚本！": "[Error] No Conda/Mamba distribution installation detected, please install the relevant distribution before running this script!",
     "[错误] 未检测到有效的环境编号！": "[Error] No valid environment number detected!",
@@ -142,8 +142,8 @@ translation_dict = {
     "[{i}]\\t{os.path.split(condapath)[1]}\\t{condapath} (当前)": "[{i}]\\\\t{os.path.split(condapath)[1]}\\\\t{condapath} (Current)",
     "[提示] 检测到如下其它发行版的环境，或未安装在规范目录下的环境，将不会被显示与管理:": "[Tip] The following environments from other distributions or those NOT installed in the standard directory will NOT be displayed or managed:",
     "{' 以上信息仅在不受支持的环境有变化时显示 ':*^55}": "{' This information is displayed only when unsupported environments change ':*^55}",
-    '允许的操作指令如下 (按{BOLD(YELLOW("[Q]"))}以退出, {BOLD(LIGHT_WHITE("<Tab>"))}切换当前显示模式 {BOLD(LIGHT_CYAN(display_mode))}):': 'Allowed commands (press {BOLD(YELLOW("[Q]"))} to quit, {BOLD(LIGHT_WHITE("<Tab>"))} to switch display mode {BOLD(LIGHT_CYAN(display_mode))}):',
-    '激活环境对应命令行输入编号{BOLD(LIGHT_YELLOW(f"[1-{valid_env_num}]"))};浏览环境主目录输入{BOLD(LIGHT_GREEN("[=编号]"))};': 'Activate environment by {BOLD(LIGHT_YELLOW(f"[1-{valid_env_num}]"))}; Browse environment directory by {BOLD(LIGHT_GREEN("[=Number]"))};',
+    '允许的操作指令如下 (按{BOLD(YELLOW("[Q]"))}以退出, 按{BOLD(LIGHT_WHITE("[Tab]"))}切换当前显示模式 {BOLD(LIGHT_CYAN(main_display_mode))}):': 'Allowed commands (press {BOLD(YELLOW("[Q]"))} to quit, {BOLD(LIGHT_WHITE("[Tab]"))} to switch the current display mode {BOLD(LIGHT_CYAN(main_display_mode))}):',
+    '激活环境对应命令行{_s}编号{boundarys[0]}{BOLD(LIGHT_YELLOW(f"1-{valid_env_num}"))}{boundarys[1]};浏览环境主目录输入<{BOLD(LIGHT_GREEN("@编号"))}>;': 'Activate environment by number {boundarys[0]}{BOLD(LIGHT_YELLOW(f"1-{valid_env_num}"))}{boundarys[1]}; Browse the env directory by <{BOLD(LIGHT_GREEN("@Number"))}>;',
     '删除环境按{BOLD(RED("[-]"))};新建环境按{BOLD(LIGHT_GREEN("[+]"))};重命名环境按{BOLD(LIGHT_BLUE("[R]"))};复制环境按{BOLD(LIGHT_CYAN("[P]"))};': '{BOLD("For env(s)")}: Delete by {BOLD(RED("[-]"))}; Create new by {BOLD(LIGHT_GREEN("[+]"))}; Rename by {BOLD(LIGHT_BLUE("[R]"))}; Copy by {BOLD(LIGHT_CYAN("[P]"))};',
     '显示并回退至环境的历史版本按{BOLD(LIGHT_MAGENTA("[V]"))};': 'View and roll back to historical version of the environment by {BOLD(LIGHT_MAGENTA("[V]"))};',
     '更新环境的所有 Conda 包按{BOLD(GREEN("[U]"))};': 'Update all Conda packages of environment(s) by {BOLD(GREEN("[U]"))};',
@@ -151,12 +151,14 @@ translation_dict = {
     '注册 Jupyter 内核按{BOLD(CYAN("[I]"))};显示、管理及清理 Jupyter 内核按{BOLD(LIGHT_BLUE("[J]"))};': '{BOLD("For Jupyter kernel(s)")}: Register by {BOLD(CYAN("[I]"))}; Display, manage, and clean by {BOLD(LIGHT_BLUE("[J]"))};',
     '检查环境完整性并显示健康报告按{BOLD(LIGHT_GREEN("[H]"))};': 'Check the integrity of env(s) and display health report by {BOLD(LIGHT_GREEN("[H]"))};',
     '搜索 Conda 软件包按{BOLD(LIGHT_YELLOW("[S]"))};': 'Search for Conda packages by {BOLD(LIGHT_YELLOW("[S]"))};',
-    "(仅限Windows) 显示环境大小及磁盘占用情况按{LIGHT_GREEN('[D]')};": "(Windows only) Display the size and disk usage of envs by {LIGHT_GREEN('[D]')};",
+    "(约 {calc_cost_time:.0f} 秒)": "(about {calc_cost_time:.0f} seconds)",
+    "统计环境大小及磁盘占用情况按{BOLD(LIGHT_GREEN('[D]'))};": "Statistics of the size and disk usage of envs by {BOLD(LIGHT_GREEN('[D]'))};",
     "[警告] base 环境未安装 Jupyter，无法管理相关环境的 Jupyter 内核注册，请在主界面按[J]以安装": "[Warning] The base environment is NOT installed with Jupyter, and cannot manage the Jupyter kernel registration of related environments. Please press [J] on the main interface to install",
     "[提示] 已清除卸载的环境 {LIGHT_CYAN(name)} 的 Jupyter 内核注册": "[Tip] The Jupyter kernel registration of the uninstalled environment {LIGHT_CYAN(name)} has been cleared.",
     "(2) [提示] 根据环境名称 {LIGHT_CYAN(new_name)} 已自动确定 Python 版本为 {LIGHT_GREEN(py_version)}": "(2) [Tip] According to the environment name {LIGHT_CYAN(new_name)}, the Python version has been automatically determined as {LIGHT_GREEN(py_version)}",
     "(3) 请指定预安装参数（如{LIGHT_YELLOW('spyder')}包等，{LIGHT_GREEN('-c nvidia')}源等，以空格隔开），以回车结束:": "(3) Please specify the pre-installed parameters (such as the {LIGHT_YELLOW('spyder')} package, {LIGHT_GREEN('-c nvidia')} source, etc., separated by spaces), and press <Enter> to end:",
-    ' 若输入\\"{LIGHT_GREEN(\'--+\')}\\"，则等效于预安装\\"{LIGHT_YELLOW(pre_install_pkgs)}\\"包（并将该环境的 Jupyter 内核注册到用户）': ' If \\\\"{LIGHT_GREEN(\'--+\')}\\\\" is entered, it is equivalent to pre-installing the \\\\"{LIGHT_YELLOW(pre_install_pkgs)}\\\\" package (and registering the Jupyter kernel of the environment to the user)',
+    '若输入\\"{LIGHT_GREEN(\'--+\')}\\"，则等效于预安装\\"{LIGHT_YELLOW(CFG_CMD_TRIGGERED_PKGS)}\\"包': 'If \\\\"{LIGHT_GREEN(\'--+\')}\\\\" is entered, it is equivalent to pre-installing the \\\\"{LIGHT_YELLOW(CFG_CMD_TRIGGERED_PKGS)}\\\\" package',
+    "（并注册 Jupyter 内核）": " (and register the Jupyter kernel)",
     "(3c) 已将 {LIGHT_GREEN(inp_sources)} 添加为新环境 {LIGHT_CYAN(new_name)} 的默认源。": "(3c) {LIGHT_GREEN(inp_sources)} has been added as the default source for the new environment {LIGHT_CYAN(new_name)}",
     "(i) 检测到环境名 {LIGHT_CYAN(new_name)} 存在非规范字符，请重新取 Jupyter 内核的注册名（非显示名称）:": "(i) Non-standard characters are detected in the environment name {LIGHT_CYAN(new_name)}, please re-enter the registration name of the Jupyter kernel (not the display name):",
     "Jupyter 注册名称 {LIGHT_YELLOW(input_str)} ": "Jupyter registration name {LIGHT_YELLOW(input_str)} ",
@@ -187,7 +189,7 @@ translation_dict = {
     "(i) 是否继续更新环境 {LIGHT_CYAN(name)}？[y/n(回车)]": "(i) Do you want to continue updating the environment {LIGHT_CYAN(name)}? [y/n(Enter)]",
     '"输入" + LIGHT_RED("不能为空") + "，请重新输入: "': '"Input" + LIGHT_RED(" cannot be empty") + ", please re-enter: "',
     "正在搜索 ({LIGHT_CYAN(search_pkg_info)})...": "Searching ({LIGHT_CYAN(search_pkg_info)})...",
-    "(i) 请输入要查看详细信息的包对应编号（带{LIGHT_CYAN('=')}号则显示安装命令行并拷贝到剪贴板）: ": "(i) Please enter the corresponding number of the package to view detailed information (with {LIGHT_CYAN('=')} to display the installation command line and copy to the clipboard): ",
+    "(i) 请输入要查看详细信息的包对应编号（带{LIGHT_CYAN('@')}号则显示安装命令行并拷贝到剪贴板）: ": "(i) Please enter the corresponding number of the package to view detailed information (with {LIGHT_CYAN('@')} to display the installation command line and copy to the clipboard): ",
     "[{key}]包{LIGHT_CYAN(pkginfo_dict['name'])} {LIGHT_GREEN(pkginfo_dict['version'])}的详细信息如下": "[{key}] The detailed information of the package {LIGHT_CYAN(pkginfo_dict['name'])} {LIGHT_GREEN(pkginfo_dict['version'])} is as follows",
     "对于 {LIGHT_CYAN(search_pkg_info)}，共找到 {LIGHT_CYAN(len(pkginfos_list_raw))} 个相关包，搜索结果如上": "Found {LIGHT_CYAN(len(pkginfos_list_raw))} relevant packages for {LIGHT_CYAN(search_pkg_info)}.",
     "[{i}/{len(env_check_names)}] 正在检查环境 {LIGHT_CYAN(name)} 的健康情况...": "[{i}/{len(env_check_names)}] Checking the health of the environment {LIGHT_CYAN(name)}...",
@@ -204,6 +206,31 @@ translation_dict = {
     "(1) 请输入需要查看及回退{BOLD(LIGHT_MAGENTA('历史版本'))}的环境编号，以回车结束: ": "(1) Please enter the number of the environment to view and roll back to {BOLD(LIGHT_MAGENTA('historical version'))}, and press <Enter> to end: ",
     "输入的环境编号 {LIGHT_YELLOW(input_str)} 无效，请重新输入: ": "The environment number {LIGHT_YELLOW(input_str)} is invalid, please re-enter: ",
     'error_msg_func=lambda x: "输入"': 'error_msg_func=lambda x: "Input"',
+    """# <提示> 这些全局设置以CFG_开头，用于控制程序的默认行为，且在程序运行时*不可*更改。
+# [设置 1] 控制[S]搜索功能在这期间内使用缓存搜索，而不重新联网下载索引（单位：分钟）。
+CFG_SEARCH_CACHE_EXPIRE_MINUTES = 60
+# [设置 2] 如果上次重新统计环境大小的耗时超过此设定，则下次需要手动按[D]以重新统计环境大小（单位：秒）。
+CFG_MAX_ENV_SIZE_CALC_SECONDS = 3
+# [设置 3] 控制 DISPLAY_MODE (int) 的初始值: 主界面环境表格显示模式，主界面按[Tab]键可切换，可以是以下值之一：
+#   1: 显示环境的 最后更新时间 和 磁盘实际使用量。
+#   2: 显示环境的 安装时间 和 磁盘总大小。
+#   3: 同时显示 最后更新时间 和 安装时间，以及 磁盘实际使用量 和 总大小。
+CFG_DEFAULT_DISPLAY_MODE = 1  # 默认值；
+# [设置 4] 控制需要清空屏幕时，是否强制使用硬清屏（即清除整个终端，而不是只清除当前屏幕内的内容）
+CFG_FULL_TERMINAL_CLEAR = True
+# [设置 5] 在[+]安装环境功能时，输入快捷命令“--+”时所代表的Conda包合集（如果有ipykernel，则会自动注册到用户Jupyter）。""": """# <Hint> These global settings, prefixed with CFG_, control the default behavior of the program and *cannot* be changed during runtime.
+# [Setting 1] Controls the [S] search function to use cached search results within this period instead of downloading new indexes (unit: minutes).
+CFG_SEARCH_CACHE_EXPIRE_MINUTES = 60
+# [Setting 2] If the time taken to recalculate the environment size last time exceeded this setting, the next recalculation requires manually pressing [D] (unit: seconds).
+CFG_MAX_ENV_SIZE_CALC_SECONDS = 3
+# [Setting 3] Controls the initial value of DISPLAY_MODE (int): the display mode of the main interface environment table. You can toggle it by pressing [Tab] on the main interface. It can be one of the following values:
+#   1: Display the last update time and actual disk usage of the environment.
+#   2: Display the installation time and total disk size of the environment.
+#   3: Display both the last update time and installation time, as well as actual disk usage and total size.
+CFG_DEFAULT_DISPLAY_MODE = 1  # Default value;
+# [Setting 4] Controls whether to force the use of a hard clear screen when clearing the screen (i.e., clearing the entire terminal instead of just the current screen content).
+CFG_FULL_TERMINAL_CLEAR = True
+# [Setting 5] During the [+] install environment function, the shortcut command "--+" represents a collection of Conda packages (if ipykernel is present, it will be automatically registered to the user's Jupyter).""",
 }
 sorted_keys = sorted(translation_dict.keys(), key=lambda x: len(x), reverse=True)
 sorted_dict = {key: translation_dict[key] for key in sorted_keys}
@@ -211,7 +238,6 @@ translation_dict = sorted_dict
 
 if __name__ == "__main__":
     input_file = output_file = "conda_env_manager.py"
-    # input_file = "conda_env_manager.py"
     # output_file = "translated_script.py"
 
     replacements = translate_script(input_file, output_file, translation_dict)
@@ -222,11 +248,11 @@ if __name__ == "__main__":
             succeed = False
             break
     if succeed:
-        print(LIGHT_GREEN("All translations are placed successfully!"))
+        print("\033[0;92mAll translations are placed successfully!\033[0m")
     else:
-        print(LIGHT_RED("Some translations failed to be placed!"))
+        print("\033[0;91mSome translations failed to be placed!\033[0m")
         idx = 0
         for key, count in replacements.items():
             if count == 0:
                 idx += 1
-                print(f"{LIGHT_YELLOW(f'[{idx}] Failed to place:')} {key}")
+                print(f"\033[0;93m [{idx}] Failed to place:\033[0m {key}")

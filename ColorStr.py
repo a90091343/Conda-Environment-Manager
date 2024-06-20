@@ -1,3 +1,4 @@
+from typing import Literal, Optional
 from colorama import init as _init
 from colorama import Fore as _Fore
 from colorama import Back as _Back
@@ -153,3 +154,102 @@ def BOLD(s, backclr=None):
 def DIM(s, backclr=None):
     """返回 较细与变暗 的字符串"""
     return _color_str(s, _Style.DIM, backclr)
+
+
+# 3. >>>>> 仅分别输出 终端文字样式的开始ASCII控制字符 与 重置控制字符 的函数 <<<<<
+def set_terminal_text_style(
+    color: Optional[
+        Literal[
+            "BLACK",
+            "RED",
+            "GREEN",
+            "YELLOW",
+            "BLUE",
+            "MAGENTA",
+            "CYAN",
+            "WHITE",
+            "LIGHT_BLACK",
+            "LIGHT_RED",
+            "LIGHT_GREEN",
+            "LIGHT_YELLOW",
+            "LIGHT_BLUE",
+            "LIGHT_MAGENTA",
+            "LIGHT_CYAN",
+            "LIGHT_WHITE",
+        ]
+    ] = None,
+    bg_color: Optional[
+        Literal[
+            "BLACK",
+            "RED",
+            "GREEN",
+            "YELLOW",
+            "BLUE",
+            "MAGENTA",
+            "CYAN",
+            "WHITE",
+            "LIGHTBLACK_EX",
+            "LIGHTRED_EX",
+            "LIGHTGREEN_EX",
+            "LIGHTYELLOW_EX",
+            "LIGHTBLUE_EX",
+            "LIGHTMAGENTA_EX",
+            "LIGHTCYAN_EX",
+            "LIGHTWHITE_EX",
+        ]
+    ] = None,
+    font_style: Optional[Literal["BOLD", "DIM"]] = None,
+):
+    """指定 字体颜色[、背景色、字体粗亮/细暗样式] ，打印对应的ASCII控制字符，需要与 reset_text_style 配合使用"""
+    color_map = {
+        "BLACK": _Fore.BLACK,
+        "RED": _Fore.RED,
+        "GREEN": _Fore.GREEN,
+        "YELLOW": _Fore.YELLOW,
+        "BLUE": _Fore.BLUE,
+        "MAGENTA": _Fore.MAGENTA,
+        "CYAN": _Fore.CYAN,
+        "WHITE": _Fore.WHITE,
+        "LIGHT_BLACK": _Fore.LIGHTBLACK_EX,
+        "LIGHT_RED": _Fore.LIGHTRED_EX,
+        "LIGHT_GREEN": _Fore.LIGHTGREEN_EX,
+        "LIGHT_YELLOW": _Fore.LIGHTYELLOW_EX,
+        "LIGHT_BLUE": _Fore.LIGHTBLUE_EX,
+        "LIGHT_MAGENTA": _Fore.LIGHTMAGENTA_EX,
+        "LIGHT_CYAN": _Fore.LIGHTCYAN_EX,
+        "LIGHT_WHITE": _Fore.LIGHTWHITE_EX,
+    }
+    bg_color_map = {
+        "BLACK": _Back.BLACK,
+        "RED": _Back.RED,
+        "GREEN": _Back.GREEN,
+        "YELLOW": _Back.YELLOW,
+        "BLUE": _Back.BLUE,
+        "MAGENTA": _Back.MAGENTA,
+        "CYAN": _Back.CYAN,
+        "WHITE": _Back.WHITE,
+        "LIGHTBLACK_EX": _Back.LIGHTBLACK_EX,
+        "LIGHTRED_EX": _Back.LIGHTRED_EX,
+        "LIGHTGREEN_EX": _Back.LIGHTGREEN_EX,
+        "LIGHTYELLOW_EX": _Back.LIGHTYELLOW_EX,
+        "LIGHTBLUE_EX": _Back.LIGHTBLUE_EX,
+        "LIGHTMAGENTA_EX": _Back.LIGHTMAGENTA_EX,
+        "LIGHTCYAN_EX": _Back.LIGHTCYAN_EX,
+        "LIGHTWHITE_EX": _Back.LIGHTWHITE_EX,
+    }
+    font_style_map = {
+        "BOLD": _Style.BRIGHT,
+        "DIM": _Style.DIM,
+    }
+
+    color_str = color_map.get(color, "")  # type: ignore
+    bg_color_str = bg_color_map.get(bg_color, "")  # type: ignore
+    font_style_str = font_style_map.get(font_style, "")  # type: ignore
+
+    style_ctrl_str = color_str + bg_color_str + font_style_str
+    print(style_ctrl_str, end="")
+
+
+def reset_terminal_text_style():
+    """打印重置控制字符，需要与 set_terminal_text_style 配合使用"""
+    print(_Style.RESET_ALL, end="")

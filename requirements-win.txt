@@ -1,4 +1,0 @@
-colorama
-prettytable
-packaging
-pywin32

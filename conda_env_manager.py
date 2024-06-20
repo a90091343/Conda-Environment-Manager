@@ -26,17 +26,24 @@ elif os.name == "nt":
 
 USER_HOME = os.path.expanduser("~")
 
-VERSION = "1.8.0-rc.2"
-PROGRAME_NAME = "Conda-Environment-Manager"
+PROGRAM_NAME = "Conda-Environment-Manager"
+PROGRAM_VERSION = "1.8.0"
 
-# ***** user settings *****
-SEARCH_CACHE_EXPIRE_MINUTES = 60  # 60 分钟检查一次，搜索功能的索引文件在这期间内使用缓存搜索
-MAX_ENV_SIZE_CALC_SECONDS = 3  # 如果上次重新统计环境大小的耗时超过 3 秒钟，则下次需要手动触发重新统计环境大小
-#     DISPLAY_MODE (int): 主界面环境表格显示模式，主界面按[Tab]键可切换，可以是以下值之一：
-#         1: 显示环境的 最后更新时间 和 磁盘实际使用量。
-#         2: 显示环境的 安装时间 和 磁盘总大小。
-#         3: 同时显示 最后更新时间 和 安装时间，以及 磁盘实际使用量 和 总大小。
-DISPLAY_MODE = 1  # 设置默认值；
+# ***** Global User Settings *****
+# <提示> 这些全局设置以CFG_开头，用于控制程序的默认行为，且在程序运行时*不可*更改。
+# [设置 1] 控制[S]搜索功能在这期间内使用缓存搜索，而不重新联网下载索引（单位：分钟）。
+CFG_SEARCH_CACHE_EXPIRE_MINUTES = 60
+# [设置 2] 如果上次重新统计环境大小的耗时超过此设定，则下次需要手动按[D]以重新统计环境大小（单位：秒）。
+CFG_MAX_ENV_SIZE_CALC_SECONDS = 3
+# [设置 3] 控制 DISPLAY_MODE (int) 的初始值: 主界面环境表格显示模式，主界面按[Tab]键可切换，可以是以下值之一：
+#   1: 显示环境的 最后更新时间 和 磁盘实际使用量。
+#   2: 显示环境的 安装时间 和 磁盘总大小。
+#   3: 同时显示 最后更新时间 和 安装时间，以及 磁盘实际使用量 和 总大小。
+CFG_DEFAULT_DISPLAY_MODE = 1  # 默认值；
+# [设置 4] 控制需要清空屏幕时，是否强制使用硬清屏（即清除整个终端，而不是只清除当前屏幕内的内容）
+CFG_FULL_TERMINAL_CLEAR = True
+# [设置 5] 在[+]安装环境功能时，输入快捷命令“--+”时所代表的Conda包合集（如果有ipykernel，则会自动注册到用户Jupyter）。
+CFG_CMD_TRIGGERED_PKGS = "matplotlib scikit-learn numba pandas ipykernel"
 
 allowed_release_names = [
     "CONDA_PREFIX",
@@ -116,9 +123,9 @@ class ProgramDataManager:
     else:  # os.name == "posix":
         localappdata_home = os.environ.get("XDG_DATA_HOME", os.path.join(USER_HOME, ".local", "share"))
     if os.path.exists(localappdata_home):
-        program_data_home = os.path.join(localappdata_home, PROGRAME_NAME)
+        program_data_home = os.path.join(localappdata_home, PROGRAM_NAME)
     else:
-        program_data_home = os.path.join(USER_HOME, "." + PROGRAME_NAME.lower())
+        program_data_home = os.path.join(USER_HOME, "." + PROGRAM_NAME.lower())
     data_file = os.path.join(program_data_home, "data.json")
 
     def __init__(self):
@@ -237,8 +244,7 @@ def get_pyvers_from_paths(pypathlist: Iterable[str]) -> list[str | None]:
         def get_file_version(file_path: str):
             try:
                 info = win32api.GetFileVersionInfo(file_path, "\\")
-                # 提取版本号
-                file_version = ".".join(
+                file_version = ".".join(  # 提取版本号
                     map(str, divmod(info["FileVersionMS"], 65536) + divmod(info["FileVersionLS"], 65536)),
                 )
                 return file_version
@@ -487,6 +493,7 @@ def detect_conda_installation(prior_release_name: str = ""):
     return conda_home, is_mamba, mamba_version, libmamba_solver_version, conda_version
 
 
+# ***** Global Literals & Control Variables *****
 CONDA_HOME, IS_MAMBA, MAMBA_VERSION, LIBMAMBA_SOLVER_VERSION, CONDA_VERSION = detect_conda_installation()
 CONDA_EXE_PATH = (
     os.path.join(CONDA_HOME, "Scripts", "conda.exe")
@@ -495,6 +502,10 @@ CONDA_EXE_PATH = (
 )
 
 data_manager = ProgramDataManager()
+
+main_display_mode = CFG_DEFAULT_DISPLAY_MODE
+env_size_recalc_force_enable = False
+env_size_recalc_need_confirm = False
 
 
 def detect_conda_libmamba_solver_enabled() -> bool:
@@ -874,10 +885,6 @@ def _get_envsizes_windows(pathlist: list[str]):
     return real_usage_list, total_size_list, disk_usage
 
 
-ENV_SIZE_RECALC_FORCE_ENABLE = False
-ENV_SIZE_RECALC_NEED_CONFIRM = False
-
-
 def get_home_sizes(namelist: list[str], pathlist: list[str], pyverlist: list[str]):
     """
     获取环境的大小信息。
@@ -943,12 +950,12 @@ def get_home_sizes(namelist: list[str], pathlist: list[str], pyverlist: list[str
 
     print(f"{LIGHT_YELLOW('[提示]')} 正在计算环境大小及磁盘占用情况，请稍等...")
 
-    global ENV_SIZE_RECALC_NEED_CONFIRM, ENV_SIZE_RECALC_FORCE_ENABLE
+    global env_size_recalc_need_confirm, env_size_recalc_force_enable
     if calc_all:
         name_sizes_dict.clear()
-        if ENV_SIZE_RECALC_FORCE_ENABLE or calc_cost_time <= MAX_ENV_SIZE_CALC_SECONDS:
-            ENV_SIZE_RECALC_FORCE_ENABLE = False
-            ENV_SIZE_RECALC_NEED_CONFIRM = False
+        if env_size_recalc_force_enable or calc_cost_time <= CFG_MAX_ENV_SIZE_CALC_SECONDS:
+            env_size_recalc_force_enable = False
+            env_size_recalc_need_confirm = False
             calc_start_time = time.time()
             if os.name == "posix":
                 real_usage_list, total_size_list, disk_usage = _get_envsizes_linux(pathlist)
@@ -968,7 +975,7 @@ def get_home_sizes(namelist: list[str], pathlist: list[str], pyverlist: list[str
 
             calc_cost_time = time.time() - calc_start_time
         else:  # 未获取磁盘使用量，重置所有环境的大小
-            ENV_SIZE_RECALC_NEED_CONFIRM = True
+            env_size_recalc_need_confirm = True
             disk_usage = 0
             for name in namelist:
                 name_sizes_dict[name] = {
@@ -1021,7 +1028,7 @@ def _get_env_last_updated_date(env_path: str, pyver: str) -> str:
 
     if max(t1, t2) == 0:
         return "Unknown"
-    return time.strftime("%Y-%m-%d", time.gmtime(max(t1, t2)))
+    return time.strftime("%Y-%m-%d", time.localtime(max(t1, t2)))
 
 
 def _get_env_installation_date(env_path: str) -> str:
@@ -1179,14 +1186,14 @@ def get_envs_prettytable(env_infos_dict) -> PrettyTable:
     fieldstr_EnvName = (
         "Env Name" + " " * (_max_name_length + 11 - (len("Env Name" + "(Python Version)"))) + "(Python Version)"
     )
-    if DISPLAY_MODE == 1:
+    if main_display_mode == 1:
         fieldstr_LastUpdated_Installation = "Last Updated"
-    elif DISPLAY_MODE == 2:
+    elif main_display_mode == 2:
         fieldstr_LastUpdated_Installation = "Installation"
     else:
         fieldstr_LastUpdated_Installation = "Last Updated/Installation"
 
-    fieldstr_Usage = ("+Usage" if DISPLAY_MODE == 3 else "+  Usage") + " " * 2 + "(%)"
+    fieldstr_Usage = ("+Usage" if main_display_mode == 3 else "+  Usage") + " " * 2 + "(%)"
     fieldstr_Size = "Size" + " " * 2 + "(%)"
 
     field_names = [
@@ -1194,9 +1201,9 @@ def get_envs_prettytable(env_infos_dict) -> PrettyTable:
         fieldstr_EnvName,
         fieldstr_LastUpdated_Installation,
     ]
-    if DISPLAY_MODE == 1:
+    if main_display_mode == 1:
         field_names.append(fieldstr_Usage)
-    elif DISPLAY_MODE == 2:
+    elif main_display_mode == 2:
         field_names.append(fieldstr_Size)
     else:
         field_names.extend([fieldstr_Usage, fieldstr_Size])
@@ -1220,7 +1227,7 @@ def get_envs_prettytable(env_infos_dict) -> PrettyTable:
             return pyver
 
     def _format_size_info(size: int, total_size: int):
-        if DISPLAY_MODE == 3:
+        if main_display_mode == 3:
             return (
                 f"{print_fsize_smart(size,precision=2,B_suffix=False):>5} ({size/total_size*100:>2.0f})"
                 if size > 0
@@ -1241,14 +1248,14 @@ def get_envs_prettytable(env_infos_dict) -> PrettyTable:
             + " " * (_max_name_length - len_to_print(env_namelist[i]) + 2)
             + f"({_format_pyver(env_pyverlist[i]):^7s})",
         ]
-        if DISPLAY_MODE == 1:
+        if main_display_mode == 1:
             row.extend(
                 [
                     f"{env_lastmodified_timelist[i]}",
                     "+ " + _format_size_info(env_realusage_list[i], disk_usage),
                 ]
             )
-        elif DISPLAY_MODE == 2:
+        elif main_display_mode == 2:
             row.extend(
                 [
                     f"{env_installation_time_list[i]}",
@@ -1310,7 +1317,7 @@ def _print_header(table_rstrip_width: int, env_infos_dict):
     print_str = "# " + BOLD(os.path.split(CONDA_HOME)[1].capitalize()) + _get_header_str()
     print_sizeinfo = (
         BOLD(f"[Apparent Size: {print_fsize_smart(env_infos_dict['total_apparent_size'])}]")
-        if DISPLAY_MODE == 2
+        if main_display_mode == 2
         else BOLD(f"[Disk Usage: {print_fsize_smart(env_infos_dict['disk_usage'])}]")
     )
     print(
@@ -1384,7 +1391,7 @@ def _get_main_prompt_str(valid_env_num: int) -> str:
     """打印主界面的用户输入提示。"""
 
     main_prompt_str = f"""
-允许的操作指令如下 (按{BOLD(YELLOW("[Q]"))}以退出, 按{BOLD(LIGHT_WHITE("[Tab]"))}切换当前显示模式 {BOLD(LIGHT_CYAN(DISPLAY_MODE))}):"""
+允许的操作指令如下 (按{BOLD(YELLOW("[Q]"))}以退出, 按{BOLD(LIGHT_WHITE("[Tab]"))}切换当前显示模式 {BOLD(LIGHT_CYAN(main_display_mode))}):"""
 
     boundarys = ["<", ">"] if valid_env_num > 9 else ["[", "]"]
     _s = "输入" if valid_env_num > 9 else "请按"
@@ -1401,10 +1408,10 @@ def _get_main_prompt_str(valid_env_num: int) -> str:
   - 搜索 Conda 软件包按{BOLD(LIGHT_YELLOW("[S]"))};"""
 
     # a. Extras
-    if ENV_SIZE_RECALC_NEED_CONFIRM:
+    if env_size_recalc_need_confirm:
         calc_cost_time = data_manager.get_data("envs_size_data").get("calc_cost_time", 0)
         cost_prompt = f"(约 {calc_cost_time:.0f} 秒)" if calc_cost_time > 0 else ""
-        main_prompt_str += f"\n  * {cost_prompt} 重新统计环境大小及磁盘占用情况按{BOLD(LIGHT_GREEN('[D]'))};"
+        main_prompt_str += f"\n  * {cost_prompt} 统计环境大小及磁盘占用情况按{BOLD(LIGHT_GREEN('[D]'))};"
 
     main_prompt_str += "\n"
     return main_prompt_str
@@ -1431,19 +1438,20 @@ def _prompt_and_validate_command(allowed_inputs: list[str], immediately_returned
         print(prompt + user_inp, end="", flush=True)
         print("\b" * len_to_print(user_inp[cursor_pos:]), end="", flush=True)
 
-    def get_command() -> str:
-        """简易的自定义input函数；输入必须在一行内；支持特定字符立即返回，及光标左右移动、退格删除、Ctrl+C退出。"""
+    def get_valid_command() -> str:
+        """简易的自定义input函数；支持特定字符立即返回；与仅在输入合法时提示符变绿后才可回车；
+        输入必须在一行内；及光标左右移动、退格删除、Esc清空、Ctrl+C退出。"""
         _MAX_WIDTH = min(25, fast_get_terminal_size().columns - 2)  # 让输入不超过一行
         is_correct_input = False
-        prompt = ">>> "
+        prompt = BOLD("$ ")
         user_inp = ""
         cursor_pos = 0
         print(prompt, end="", flush=True)
         while char := get_char():
-            if not user_inp and char in immediately_returned_chars:  # 按下了立即返回的字符
+            if char in immediately_returned_chars and not user_inp:  # 按下立即返回的字符且输入为空
                 user_inp = char
                 break
-            if char == "\r":  # 按下回车键
+            elif char == "\r" and user_inp in allowed_inputs:  # 按下回车键且输入合法则返回
                 break
             elif char == "\x03":  # 按下Ctrl+C
                 user_inp = "Q"
@@ -1476,6 +1484,10 @@ def _prompt_and_validate_command(allowed_inputs: list[str], immediately_returned
                         print("\b" * del_len + " " * del_len + "\b" * del_len, end="", flush=True)
                     else:
                         refresh_line(prompt, user_inp, cursor_pos)
+            elif char == "\x1b":  # 按下ESC键，清空输入
+                user_inp = ""
+                cursor_pos = 0
+                refresh_line(prompt, user_inp, cursor_pos)
 
             if user_inp in allowed_inputs:  # 对于合法的输入，提示符变为绿色
                 refresh_line(LIGHT_GREEN(prompt), user_inp, cursor_pos)
@@ -1484,27 +1496,16 @@ def _prompt_and_validate_command(allowed_inputs: list[str], immediately_returned
                 refresh_line(prompt, user_inp, cursor_pos)
                 is_correct_input = False
 
-        print()
         return user_inp.strip(" ")
 
     allowed_inputs.extend(immediately_returned_chars)
 
     first_prompt_str = "请按下指令键，或输入命令并回车："
-    error_prompt_format = "输入 {0} 不合法，请重新按键或输入："
 
-    idx = 0
-    while True:
-        idx += 1
-        prompt_str = first_prompt_str if idx == 1 else error_prompt_format.format(LIGHT_YELLOW(inp))
-        if idx > 1:
-            clear_lines_above(get_printed_line_count(last_prompt_str) + 1)
-        print(prompt_str)
-        last_prompt_str = prompt_str
-
-        inp = get_command()
-        if inp in allowed_inputs:
-            clear_lines_above(get_printed_line_count(last_prompt_str) + 1)
-            return inp
+    print(first_prompt_str)
+    inp = get_valid_command()
+    clear_lines_above(get_printed_line_count(first_prompt_str))
+    return inp
 
 
 def show_info_and_get_input(env_infos_dict) -> str:
@@ -1514,7 +1515,7 @@ def show_info_and_get_input(env_infos_dict) -> str:
     ***** 注意 *****
         此函数是整个脚本的三个主函数其二，负责主循环中 “显示主界面信息和获取用户指令” 功能。
     """
-    global DISPLAY_MODE
+    global main_display_mode
 
     env_num = env_infos_dict["env_num"]
     valid_env_num = env_infos_dict["valid_env_num"]
@@ -1526,7 +1527,7 @@ def show_info_and_get_input(env_infos_dict) -> str:
     def __printRegularTransactionSet(cls=False):
         table = get_envs_prettytable(env_infos_dict)
         if cls:
-            clear_screen(hard=False)  # v1.8.0 改为软清屏
+            clear_screen(hard=CFG_FULL_TERMINAL_CLEAR)
         # 1.2 输出抬头
         table_rstrip_width = len_to_print(table.get_string().splitlines()[0].rstrip())
         _print_header(table_rstrip_width, env_infos_dict)
@@ -1542,7 +1543,7 @@ def show_info_and_get_input(env_infos_dict) -> str:
     # 3. 提示用户按下或输入对应指令
     _CYCLE_DISP = "\t"
     allowed_commands = ["-", "_", "+", "=", "I", "R", "J", "C", "V", "U", "S", "Q", "P", "H", _CYCLE_DISP]
-    if ENV_SIZE_RECALC_NEED_CONFIRM:
+    if env_size_recalc_need_confirm:
         allowed_commands.append("D")
     allowed_commands += [char.lower() for char in allowed_commands if char.isupper()]
     allowed_inputs = [f"@{str(i)}" for i in range(1, env_num + 1)]
@@ -1555,7 +1556,7 @@ def show_info_and_get_input(env_infos_dict) -> str:
     while True:  # 设置了immediately_returned_chars后，inp最多只能接受一行内的字符
         inp = _prompt_and_validate_command(allowed_inputs, allowed_commands)
         if inp == _CYCLE_DISP:
-            DISPLAY_MODE = DISPLAY_MODE % 3 + 1
+            main_display_mode = main_display_mode % 3 + 1
             __printRegularTransactionSet(cls=True)
         else:
             clear_lines_above(get_printed_line_count(_get_main_prompt_str(valid_env_num)))
@@ -1706,9 +1707,13 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
             + LIGHT_RED("已存在或不符合规范")
             + "，请重新输入: ",
         )
-        py_pattern = r"(?:py|pypy|python)[^A-Za-z0-9]{0,2}(\d)\.?(\d{1,2})"
-        py_match = re.search(py_pattern, new_name)
-        if py_match:
+        py_pattern = r"(?:py|python)[_.-]?(\d)\.?(\d{1,2})"
+        py_match = re.search(py_pattern, new_name, re.IGNORECASE)
+        if py_match and (
+            (int(py_match[1]) == 1 and int(py_match[2]) in (0, 2, 3, 4, 5, 6))
+            or (int(py_match[1]) == 2 and int(py_match[2]) in (0, 6, 7))
+            or (int(py_match[1]) == 3 and 3 <= int(py_match[2]) <= 15)
+        ):
             py_version = py_match.group(1) + "." + py_match.group(2)
             print(
                 f"(2) [提示] 根据环境名称 {LIGHT_CYAN(new_name)} 已自动确定 Python 版本为 {LIGHT_GREEN(py_version)}"
@@ -1719,19 +1724,21 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 "[x.y] >>> ",
                 condition_func=lambda x: re.match(r"\d\.\d", x) or x == "",
             )
-        pre_install_pkgs = "numpy pandas matplotlib scipy scikit-learn ipykernel"  # 预安装的包
         print(
             f"(3) 请指定预安装参数（如{LIGHT_YELLOW('spyder')}包等，{LIGHT_GREEN('-c nvidia')}源等，以空格隔开），以回车结束:"
         )
         print(
             LIGHT_YELLOW("[提示]")
-            + f" 若输入\"{LIGHT_GREEN('--+')}\"，则等效于预安装\"{LIGHT_YELLOW(pre_install_pkgs)}\"包（并将该环境的 Jupyter 内核注册到用户）"
+            + f" 若输入\"{LIGHT_GREEN('--+')}\"，则等效于预安装\"{LIGHT_YELLOW(CFG_CMD_TRIGGERED_PKGS)}\"包"
+            + "（并注册 Jupyter 内核）"
+            if "ipykernel" in CFG_CMD_TRIGGERED_PKGS
+            else ""
         )
         install_opts = input_strip(">>> ")
         is_register_jupyter = False
         if install_opts.find("--+") != -1:
-            install_opts = install_opts.replace("--+", pre_install_pkgs)
-            is_register_jupyter = True
+            install_opts = install_opts.replace("--+", CFG_CMD_TRIGGERED_PKGS)
+            is_register_jupyter = True if "ipykernel" in CFG_CMD_TRIGGERED_PKGS else False
         command = get_cmd(
             [f'mamba create -n "{new_name}" python{"="+py_version if py_version else ""} {install_opts}']
         )
@@ -1767,7 +1774,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                     print(f"(3c) 已将 {LIGHT_GREEN(inp_sources)} 添加为新环境 {LIGHT_CYAN(new_name)} 的默认源。")
 
         if is_register_jupyter and new_name in _get_env_basic_infos()[0]:
-            if not new_name.isascii():
+            if not re.match(r"^[A-Za-z0-9._-]+$", new_name):
                 print(
                     LIGHT_YELLOW(
                         f"(i) 检测到环境名 {LIGHT_CYAN(new_name)} 存在非规范字符，请重新取 Jupyter 内核的注册名（非显示名称）:"
@@ -1812,7 +1819,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
         if not ResponseChecker(inp, default="yes").is_yes():
             return 1
         for idx, name in enumerate(env_reg_names, 1):
-            if not name.isascii():
+            if not re.match(r"^[A-Za-z0-9._-]+$", name):
                 print(
                     LIGHT_YELLOW(
                         f"(i) 检测到环境名 {LIGHT_CYAN(name)} 存在非规范字符，请重新取 Jupyter 内核的注册名（非显示名称）:"
@@ -1902,7 +1909,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 print(
                     LIGHT_YELLOW("[提示] 检测到原环境的 Jupyter 注册已失效，正在为新环境重新注册 Jupyter 内核...")
                 )
-                if not new_name.isascii():
+                if not re.match(r"^[A-Za-z0-9._-]+$", new_name):
                     print(
                         LIGHT_YELLOW(
                             f"(i) 检测到新环境名 {LIGHT_CYAN(new_name)} 存在非规范字符，请重新取 Jupyter 内核的注册名（非显示名称）:"
@@ -1996,7 +2003,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
             display_names.append(k_info["spec"]["display_name"])
             py_pathlist.append(k_info["spec"]["argv"][0])
             install_timestamps.append(
-                time.strftime("%Y-%m-%d", time.gmtime(os.path.getmtime(k_info["resource_dir"])))
+                time.strftime("%Y-%m-%d", time.localtime(os.path.getmtime(k_info["resource_dir"])))
             )
             kernel_dirs.append(replace_user_path(k_info["resource_dir"]))
         py_versions = get_pyvers_from_paths(py_pathlist)
@@ -2192,7 +2199,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 pip_cache_Description = "Pip index cache & local built wheels"
             else:
                 pip_cache_size = 0
-                pip_cache_Description = "* DISABLED *"
+                pip_cache_Description = BOLD("* DISABLED *")
             pip_cache_row = [
                 "[5]",
                 "Pip Cache",
@@ -2979,7 +2986,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
             total_channels = ordered_unique(total_channels)
             search_meta_data = data_manager.get_data("search_meta_data")
             if search_meta_data.get("last_update_time", 0) >= (
-                time.time() - SEARCH_CACHE_EXPIRE_MINUTES * 60
+                time.time() - CFG_SEARCH_CACHE_EXPIRE_MINUTES * 60
             ) and set(total_channels).issubset(search_meta_data.get("total_channels", [])):
                 command_str = f'mamba repoquery search "{search_pkg_info}" {" ".join(["-c "+i for i in total_channels])} --json --quiet --use-index-cache'
                 search_meta_data["total_channels"] = list(
@@ -3273,7 +3280,11 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                         channel_str,
                         python_version_range,
                         cuda_support,
-                        time.strftime("%Y-%m-%d", time.gmtime(pkg_overview["timestamp"])),
+                        (
+                            time.strftime("%Y-%m-%d", time.gmtime(pkg_overview["timestamp"]))
+                            if pkg_overview["timestamp"]
+                            else ""
+                        ),
                         f"{pkg_overview['build_count']} builds",
                     ]
                     if user_options["select_mode"]:
@@ -3456,7 +3467,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 python_version_field = "Python" + __add_sort_flag("python_version")
                 cuda_version_field = " CUDA " + __add_sort_flag("cuda_version")
                 size_field = (" " * 3 if max_cuda_len < 6 + 2 else "") + "Size" + __add_sort_flag("size")
-                timestamp_field = "Timestamp" + __add_sort_flag("timestamp")
+                timestamp_field = "UTC_Time" + __add_sort_flag("timestamp")
 
                 table_padding_width = 2
                 f_number_width = len(f"[{len(pkginfos_list)}]") if user_options["select_mode"] else 0
@@ -3596,7 +3607,11 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                         python_version,
                         cuda_info,
                         print_fsize_smart(pkginfo_dict["size"], B_suffix=False),
-                        time.strftime("%Y-%m-%d", time.gmtime(pkginfo_dict["timestamp"])),
+                        (
+                            time.strftime("%Y-%m-%d", time.gmtime(pkginfo_dict["timestamp"]))
+                            if pkginfo_dict["timestamp"]
+                            else ""
+                        ),
                     ]
                     if user_options["select_mode"]:
                         row.insert(0, f"[{i}]")
@@ -3860,8 +3875,10 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                                     num_lines = 0
                                     pkginfo_dict = pkginfos_list[int(key) - 1].copy()
                                     pkginfo_dict["size"] = print_fsize_smart(pkginfo_dict["size"])
-                                    pkginfo_dict["timestamp"] = time.strftime(
-                                        "%Y-%m-%d %H:%M:%S", time.gmtime(pkginfo_dict["timestamp"])
+                                    pkginfo_dict["timestamp"] = (
+                                        time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(pkginfo_dict["timestamp"]))
+                                        if pkginfo_dict["timestamp"]
+                                        else ""
                                     )
                                     prompt_str = f" [{key}]包{LIGHT_CYAN(pkginfo_dict['name'])} {LIGHT_GREEN(pkginfo_dict['version'])}的详细信息如下 "
                                     print_str = (
@@ -4171,7 +4188,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 pattern = re.compile(r"([\d*]{1,3})\.([\d*]{1,3})(?:\.[a-zA-Z\d.*]+)*")
                 return pattern.sub(format_major_minor, version_str)
 
-            clear_screen()
+            clear_screen(CFG_FULL_TERMINAL_CLEAR)
             pkginfos_list = _data_processing_transaction(user_options)
             _print_transcation(pkginfos_list, first_print=True)
             num_lines_2 = _get_user_options(user_options, pkginfos_list)
@@ -4181,7 +4198,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 if filter_value := user_options["filters"]["cuda_version"]:
                     user_options["filters"]["cuda_version"] = extract_major_minor_only(filter_value)
                 if user_options["need_reprint"]:
-                    clear_screen()
+                    clear_screen(CFG_FULL_TERMINAL_CLEAR)
                     pkginfos_list = _data_processing_transaction(user_options)
                     _print_transcation(pkginfos_list)
                 else:
@@ -4256,9 +4273,9 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
 
     # 如果按下的是[D]，则计算所有环境的大小及真实磁盘占有量
     elif inp.upper() == "D":
-        global ENV_SIZE_RECALC_FORCE_ENABLE
-        ENV_SIZE_RECALC_FORCE_ENABLE = True
-        clear_screen(hard=False)
+        global env_size_recalc_force_enable
+        env_size_recalc_force_enable = True
+        clear_screen(hard=CFG_FULL_TERMINAL_CLEAR)
 
     # 如果输入的是[=编号]，则浏览环境主目录
     elif inp.find("@") != -1:
@@ -4281,7 +4298,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
         # 通过列表的索引值获取对应的环境名称
         name = env_namelist[int(inp) - 1]
         # 激活环境，然后进入命令行
-        # clear_screen()
+        # clear_screen(FULL_TERMINAL_CLEAR)
         if os.name == "nt":
             conda_hook_path = os.path.join(CONDA_HOME, "shell", "condabin", "conda-hook.ps1")
             command = [
@@ -4294,7 +4311,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
             ]
             subprocess.Popen(command)  # Popen是异步执行，不会阻塞
         else:
-            cmd_str = get_linux_activation_shell_cmd() + f' && conda activate "{name}"'
+            cmd_str = get_linux_activation_shell_cmd() + f" && conda activate '{name}'"
             command = f'bash --init-file <(echo ". $HOME/.bashrc; {cmd_str}")'
             subprocess.run(["bash", "-c", command])
 
@@ -4320,13 +4337,19 @@ def main(workdir):
         env_infolist_dict = get_env_infos()
         inp = show_info_and_get_input(env_infolist_dict)
         print()
-        if not do_correct_action(inp, env_infolist_dict):
-            break
+        try:
+            if not do_correct_action(inp, env_infolist_dict):
+                break
+        except KeyboardInterrupt:  # 捕获Ctrl+C中断信号,自定义其功能为中断当前事务，重启主循环
+            cancel_msg = " * CANCLED BY USER * "
+            half_width = (fast_get_terminal_size().columns - len(cancel_msg)) // 2
+            print("\n" + DIM(LIGHT_YELLOW(">" * half_width + cancel_msg + "<" * half_width)))
+
         print()
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description=f"Conda/Mamba 发行版环境管理工具 v{VERSION}")
+    parser = argparse.ArgumentParser(description=f"Conda/Mamba 发行版环境管理工具 v{PROGRAM_VERSION}")
     parser.add_argument(
         "-d",
         "-D",
@@ -4447,7 +4470,7 @@ if __name__ == "__main__":
 # 2024-5-15 v1.7.rc2 修复了一些bug；优化了一些显示与操作逻辑；
 # 2024-5-16 ~ 2024-5-19 v1.7 (Release) 优化了搜索结果界面的显示，增加了适应终端宽度的功能; fix bugs; 正式发布版
 # 2024-5-28 v1.7.3 在 Github 上正式发布的版本（已验证各功能的有效性）
-# 2024-6-13 v1.8.0-rc0 优化并统一了Linux和Windows下的环境大小计算逻辑，并指定时间限制：只要上一次用时超3秒，下一次则需用户按<D>确认才计算
-# 2024-6-16 v1.8.0 更改操作指令逻辑为按下后立即返回；修复了一些bug。
+# 2024-6-13 v1.8.0-rc0 优化并统一了Linux和Windows下的环境大小计算逻辑，并指定时间限制：只要上一次用时超限，下一次则需用户按<D>确认才计算
+# 2024-6-16 ~ 2024-6-19 v1.8.0 更改操作指令逻辑为按下后立即返回；修复了一些bug。
 # **********************
 # 致谢：OpenAI ChatGPT，Github Copilot
