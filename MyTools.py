@@ -32,9 +32,7 @@ def remove_color_from_str(colorful_str: str) -> str:
 
 
 def fast_get_terminal_size() -> os.terminal_size:
-    """
-    带缓存的快速获取终端大小，若有缓存且距今不超过0.25秒，则直接返回缓存值。
-    """
+    """带缓存的快速获取终端大小，若有缓存且距今不超过0.25秒，则直接返回缓存值。"""
     cache = getattr(fast_get_terminal_size, "cache", None)
     if cache and time.time() - cache["time"] < 0.25:
         return cache["size"]
@@ -47,13 +45,14 @@ def fast_get_terminal_size() -> os.terminal_size:
 
 def count_width_per_line(s: str) -> list[int]:
     """返回多行字符串每行的实际打印宽度列表
-    <Note>  1. 颜色控制字符会被移除
-            2. 函数能正确处理的以下特殊字符：制表符\\t(tab_size=8), 回车符\\r, 换行符\\n, 垂直制表符\\v, 换页符\\f
-                (其他不受支持的特殊字符则会被*忽略*)
-            3. 对于\\v, \\f的行为，以bash终端的垂直下移换行为准
-                (win11的Windows terminal则将其视为普通的换行符\\n, 而win10及以下的默认终端则无法正常显示）
-    """
 
+    Notes:
+        1. 颜色控制字符会被移除。
+        2. 函数能正确处理以下特殊字符：制表符\\t (tab_size=8)、回车符\\r、换行符\\n、垂直制表符\\v、换页符\\f
+           (其他不受支持的特殊字符则会被忽略)。
+        3. 对于\\v、\\f的行为，以bash终端的垂直下移换行为准
+           (win11的Windows terminal则将其视为普通的换行符\\n, 而win10及以下的默认终端则无法正常显示)。
+    """
     _TAB_SIZE = 8
     terminal_width = fast_get_terminal_size().columns
 
@@ -111,21 +110,22 @@ def count_width_per_line(s: str) -> list[int]:
 
 
 def len_to_print(s: str) -> int:
-    """返回字符串在控制台中的实际打印宽度,并能正确处理制表符(tab_size=8)的宽度计算。
-    <Note>  1. 若字符串存在多行，则返回最宽行的打印宽度
-            2. 其他同 count_width_per_line() 函数
-    """
+    """返回字符串在控制台中的实际打印宽度，并能正确处理制表符 (tab_size=8) 的宽度计算。
 
+    Notes:
+        1. 若字符串存在多行，则返回最宽行的打印宽度。
+        2. 其他同 count_width_per_line() 函数。
+    """
     return max(count_width_per_line(s))
 
 
 def get_printed_line_count(text: str) -> int:
-    """
-    统计字符串输出时占用*终端*的实际行数，返回值恒 >= 1  (即使text为空字符串)
-    <Note>  1. 注意：默认字符串用于print(text,end="\\n"), 即本函数默认text被输出后会自动换行
-            2. 其他同 count_width_per_line() 函数
-    """
+    """统计字符串输出时占用终端的实际行数，返回值恒 >= 1  (即使text为空字符串)。
 
+    Notes:
+        1. 注意：默认字符串用于print(text, end="\\n")，即本函数默认text被输出后会自动换行。
+        2. 其他同 count_width_per_line() 函数。
+    """
     terminal_width = fast_get_terminal_size().columns
     num_lines = 0
 
@@ -140,15 +140,8 @@ def get_printed_line_count(text: str) -> int:
     return num_lines
 
 
-def print_fsize_smart(
-    fsize: int,
-    precision: int = 3,
-    B_suffix: bool = True,
-) -> str:
-    """
-    返回文件大小的格式化的字符串
-    by chatGPT
-    """
+def print_fsize_smart(fsize: int, precision: int = 3, B_suffix: bool = True) -> str:
+    """返回文件大小的格式化的字符串 by chatGPT"""
     assert type(fsize) == int, "fsize must be an integer"
     # 转换为合适的单位
     units_B = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"]
@@ -173,19 +166,23 @@ def print_fsize_smart(
 
 
 def clear_lines_above(num_lines: int):
-    """
-    清除并覆盖指定行数以上的输出，注意：只能清除当前显示区域内的行，不能清除已经滚动出显示区域的内容。
-    :param num_lines: int, 要清除并覆盖的行数
+    """清除并覆盖指定行数以上的输出，注意：只能清除当前显示区域内的行，不能清除已经滚动出显示区域的内容。
+
+    Args:
+        num_lines (int): 要清除并覆盖的行数。
     """
     if num_lines > 0:
         print(f"\033[{num_lines}F\033[J", end="")
 
 
 def get_folder_size(folder_path: str, verbose: bool = True) -> int:
-    """
-    计算包括所有内容在内的文件夹的总大小。
-    [注意] win下会重复统计硬链接，导致统计结果大于实际磁盘占用
-    返回:  int: 文件夹的总大小（以字节为单位）。
+    """计算包括所有内容在内的文件夹的总大小。
+
+    Warning:
+        Windows 下会重复统计硬链接，导致统计结果大于实际磁盘占用。
+
+    Returns:
+        int: 文件夹的总大小（以字节为单位）。
     """
     error_msg = LIGHT_RED(f"[Error]: The folder {folder_path} does not exist.")
     if os.name == "posix":
@@ -208,7 +205,7 @@ def get_folder_size(folder_path: str, verbose: bool = True) -> int:
         try:
             result = subprocess.check_output(command, shell=True)
             line_bytes = result.splitlines()[-2]
-            total_size = re.findall(b"\d+", line_bytes)[-1]
+            total_size = re.findall(rb"\d+", line_bytes)[-1]
             return int(total_size)
         except Exception as e:
             if verbose:
@@ -217,9 +214,7 @@ def get_folder_size(folder_path: str, verbose: bool = True) -> int:
 
 
 def get_char(echo: bool = False) -> str:
-    """
-    从标准输入流中读取单个字符，不等待回车。
-    """
+    """从标准输入流中读取单个字符，不等待回车。"""
     print("", end="", flush=True)
 
     if os.name == "posix":
@@ -303,9 +298,9 @@ class AlwaysFalseVersion(Version):
 
 
 class CachedIterator:
-    """
-    带缓存功能的迭代器，用于缓存生成器中的值。
-    可以将其视为一个普通的列表list: 即允许多次迭代、判断是否为空、根据索引获取对应的值。
+    """带缓存功能的迭代器，用于缓存生成器中的值。
+
+    可以将其视为一个普通的列表 (list): 即允许多次迭代、判断是否为空、根据索引获取对应的值。
     """
 
     def __init__(self, generator):
@@ -342,11 +337,11 @@ class CachedIterator:
         return bool(self.stored_values) or not self.iterated
 
     def __getitem__(self, index):
-        """
-        返回指定索引位置的值。
-            <Note> 如果索引超出当前缓存长度，则继续从生成器获取值并缓存，直到达到该索引。
-        """
+        """返回指定索引位置的值。
 
+        Note:
+            如果索引超出当前缓存长度，则继续从生成器获取值并缓存，直到达到该索引。
+        """
         if not self.iterated:
             for _ in range(index - len(self.stored_values) + 1):
                 try:
@@ -362,8 +357,7 @@ class CachedIterator:
 def get_version_constraints_units(
     ver_constraints_str: str, always_true_strs: list = [], always_false_strs: list = []
 ) -> list[dict]:
-    """
-    将版本约束字符串解析为约束单元列表。
+    """将版本约束字符串解析为约束单元列表。
 
     Args:
         ver_constraints_str (str): 版本约束字符串，用管道符 "|" 分隔多个约束单元。
@@ -373,7 +367,6 @@ def get_version_constraints_units(
     Returns:
         list: 每个约束单元包含 "ands" 和 "ors" 的字典列表。
     """
-
     constraints_units = ver_constraints_str.split("|")
 
     constraints_cons_units = []
@@ -396,8 +389,7 @@ def get_version_constraints_units(
 def is_version_within_constraints(
     version_str: str, constraints_str: str, always_true_strs: list = [], always_false_strs: list = []
 ) -> bool:
-    """
-    判断版本字符串是否符合约束条件。
+    """判断版本字符串是否符合约束条件。
 
     Args:
         version_str (str): 版本字符串。
@@ -408,7 +400,6 @@ def is_version_within_constraints(
     Returns:
         bool: 如果版本符合约束条件则返回 True，否则返回 False。
     """
-
     version_cons_units = get_version_constraints_units(version_str, always_true_strs, always_false_strs)
     constraints_cons_units = get_version_constraints_units(constraints_str, always_true_strs, always_false_strs)
 
@@ -560,8 +551,7 @@ _all_op_vers_pattern = re.compile(r"([~<>=!]{0,2})\s*([\w.*]+)")
 
 
 def parse_constraints(constraints_str: str) -> tuple[Union[CachedIterator, list], Union[CachedIterator, list]]:
-    """
-    解析约束字符串，返回二元元组，每个元素为带缓存迭代器CachedIterator或空列表。
+    """解析约束字符串，返回二元元组，每个元素为带缓存迭代器CachedIterator或空列表。
 
     Args:
         constraints_str (str): 约束字符串。
@@ -677,11 +667,12 @@ def get_cluster_size_windows(path: str) -> int:
 
 
 def clear_screen(hard: bool = True):
-    """
-    清空终端屏幕。
-    :param hard: bool,
-        True(默认): 清空终端上的所有内容；
-        False: 仅清空终端当前屏幕显示。
+    """清空终端屏幕。
+
+    Args:
+        hard (bool):
+            True (默认): 清空终端上的所有内容；
+            False: 仅清空终端当前屏幕显示。
     """
     if hard:
         if os.name == "posix":
@@ -711,36 +702,40 @@ class ResponseChecker:
     VALID_RESPONSES = YES_RESPONSES + NO_RESPONSES
 
     def __init__(self, input_str: str, default: Literal["yes", "no", "unknown"] = "unknown"):
-        """
-        初始化ResponseChecker对象并判断输入。
-        :param input_str: 用户输入的字符串
-        :param default: 默认值，当输入为空时表示的默认回答，可选值为"yes", "no", "unknown"
+        """初始化ResponseChecker对象并判断输入。
+
+        Args:
+            input_str (str): 用户输入的字符串。
+            default (Literal["yes", "no", "unknown"]): 默认值，当输入为空时表示的默认回答。默认为 "unknown"。
         """
         self.input_str = input_str.strip().lower()
         self.default = default
 
     def is_yes(self) -> bool:
-        """
-        判断输入是否为肯定回答。
-        :return: 如果是肯定回答返回True，否则返回False
+        """判断输入是否为肯定回答。
+
+        Returns:
+            bool: 如果是肯定回答返回 True，否则返回 False。
         """
         if self.input_str == "":
             return self.default == "yes"
         return self.input_str in self.YES_RESPONSES
 
     def is_no(self) -> bool:
-        """
-        判断输入是否为否定回答。
-        :return: 如果是否定回答返回True，否则返回False
+        """判断输入是否为否定回答。
+
+        Returns:
+            bool: 如果是否定回答返回 True，否则返回 False。
         """
         if self.input_str == "":
             return self.default == "no"
         return self.input_str in self.NO_RESPONSES
 
     def is_other(self) -> bool:
-        """
-        判断输入是否为其他非确定性回答。
-        :return: 如果是其他回答返回True，否则返回False
+        """判断输入是否为其他非确定性回答。
+
+        Returns:
+            bool: 如果是其他回答返回True，否则返回False
         """
         if self.input_str == "":
             return self.default == "unknown"
@@ -750,8 +745,8 @@ class ResponseChecker:
 #  ----- * 以下是大学时写的函数，之后也没有修改过 * -----
 
 
-def cut_printstr(lim, s):
-    "lim:限制打印格数，返回截断的字符串"
+def cut_printstr(lim: int, s: str):
+    """lim:限制打印格数，返回截断的字符串"""
     if len_to_print(s) <= lim:
         return s
     s = str(s)
@@ -766,9 +761,8 @@ def cut_printstr(lim, s):
     return rs
 
 
-def path_intable(n, path: str):
-    "n:控制台打印限制格数，返回路径的多行字符串，并将文件名标黄"
-
+def path_intable(n: int, path: str):
+    """n:控制台打印限制格数，返回路径的多行字符串，并将文件名标黄"""
     p1 = path
     p2 = ""
     p3 = ""
@@ -793,7 +787,7 @@ def path_intable(n, path: str):
 
 
 def show_indir(workdir, showhat="all"):
-    "展示目录下文件表格,返回所选项的绝对路径,showhat参数选项：'all','dir','file'"
+    """展示目录下文件表格,返回所选项的绝对路径,showhat参数选项：'all','dir','file'"""
     from prettytable import PrettyTable
 
     objs = []
@@ -815,7 +809,11 @@ def show_indir(workdir, showhat="all"):
         tb.add_row(
             [
                 sn,
-                (LIGHT_GREEN(obj.name) if obj.is_file() else BLUE(obj.name, backclr="lg")),
+                (
+                    LIGHT_GREEN(obj.name)
+                    if obj.is_file()
+                    else ColorStr(obj.name, color="BLUE", bg_color="LIGHT_GREEN")
+                ),
             ]
         )
     print(tb)

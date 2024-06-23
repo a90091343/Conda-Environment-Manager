@@ -1,4 +1,4 @@
-# This code is authored by azhan.
+"""This code is authored by azhan."""
 
 import argparse
 import os
@@ -13,7 +13,7 @@ from glob import glob
 from shutil import rmtree
 from threading import Event, Lock, Thread
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Iterable, Literal, Union
+from typing import Any, Iterable, Literal, TypedDict, Union
 from prettytable import PrettyTable
 from ColorStr import *
 from MyTools import *
@@ -27,7 +27,7 @@ elif os.name == "nt":
 USER_HOME = os.path.expanduser("~")
 
 PROGRAM_NAME = "Conda-Environment-Manager"
-PROGRAM_VERSION = "1.8.0"
+PROGRAM_VERSION = "1.8.1"
 
 # ***** Global User Settings *****
 # <提示> 这些全局设置以CFG_开头，用于控制程序的默认行为，且在程序运行时*不可*更改。
@@ -74,13 +74,12 @@ source_priority_table = {
 def filter_and_sort_sources_by_priority(
     sources: Iterable[str], keep_url=False, enable_default_src=True
 ) -> list[str]:
-    """
-    过滤并按优先级排序源。
-        参数：
-            keep_url (bool): 是否保留URL格式的源，默认为False。
-            enable_default_src (bool): 是否启用默认源("conda-forge", "defaults")，默认为True。
-    """
+    """过滤并按优先级排序源。
 
+    Args:
+        keep_url (bool): 是否保留URL格式的源，默认为False。
+        enable_default_src (bool): 是否启用默认源("conda-forge", "defaults")，默认为True。
+    """
     # Step 1
     unique_src_set = set()
     for source in sources:
@@ -109,10 +108,9 @@ def filter_and_sort_sources_by_priority(
 
 
 class ProgramDataManager:
-    """
-    负责加载、存储和更新程序在用户计算机上存储的数据文件的类。
+    """负责加载、存储和更新程序在用户计算机上存储的数据文件的类。
 
-    属性:
+    Attributes:
         localappdata_home (str): 本地应用数据的目录路径，取决于操作系统。
         program_data_home (str): 程序数据的主目录路径。
         data_file (str): 数据文件的路径。
@@ -133,10 +131,10 @@ class ProgramDataManager:
         self.env_info_data = self._all_data.get(CONDA_HOME, {})
 
     def _load_data(self):
-        """
-        私有方法，从数据文件加载数据。
-            返回:
-                dict: 数据文件中的所有数据。如果文件不存在或无法解析，则返回空字典。
+        """私有方法，从数据文件加载数据。
+
+        Returns:
+            dict: 数据文件中的所有数据。如果文件不存在或无法解析，则返回空字典。
         """
         try:
             with open(self.data_file, "r", encoding="utf-8") as f:
@@ -148,9 +146,9 @@ class ProgramDataManager:
             return {}
 
     def _write_data(self):
-        """
-        私有方法，将当前数据写入数据文件。
-            如果数据目录不存在，则创建该目录。
+        """私有方法，将当前数据写入数据文件。
+
+        如果数据目录不存在，则创建该目录。
         """
         self._all_data[CONDA_HOME] = self.env_info_data
         if not os.path.exists(self.program_data_home):
@@ -159,21 +157,22 @@ class ProgramDataManager:
             json.dump(self._all_data, f)
 
     def get_data(self, key: str) -> dict[str, Any]:
-        """
-        根据给定的键返回对应的数据字典。
-            参数:
-                key (str): 数据键，形如*_data，描述一个数据的字典。
-            返回:
-                dict: 对应键的数据字典。如果键不存在，则返回空字典。
+        """根据给定的键返回对应的数据字典。
+
+        Args:
+            key (str): 数据键，形如*_data，描述一个数据的字典。
+
+        Returns:
+            dict: 对应键的数据字典。如果键不存在，则返回空字典。
         """
         return self.env_info_data.get(key, {})
 
     def update_data(self, key: str, value: dict[str, Any]):
-        """
-        更新指定键的数据并写入文件。
-            参数:
-                key (str): 数据键，形如*_data，描述一个数据的字典。
-                value (dict): 更新的单个数据字典。
+        """更新指定键的数据并写入文件。
+
+        Args:
+            key (str): 数据键，形如*_data，描述一个数据的字典。
+            value (dict): 更新的单个数据字典。
         """
         self.env_info_data[key] = value
         self._write_data()
@@ -204,13 +203,16 @@ def replace_user_path(path: str):
 
 
 def get_valid_input(prompt: str, condition_func, error_msg_func=None, max_errors=5):
-    """
-    获取有效输入，并处理输入错误
-    :param prompt: str, 输入提示信息
-    :param condition_func: function, 判断输入是否有效的函数
-    :param error_msg_func: function, 显示输入错误提示信息的函数，其应当仅接受一个str参数，即用户输入的值
-    :param max_errors: int, 允许的最大错误次数，默认为5
-    :return: str, 用户输入的值
+    """获取有效输入，并处理输入错误。
+
+    Args:
+        prompt (str): 输入提示信息。
+        condition_func (function): 判断输入是否有效的函数。
+        error_msg_func (function): 显示输入错误提示信息的函数，其应当仅接受一个str参数，即用户输入的值。
+        max_errors (int): 允许的最大错误次数，默认为5。
+
+    Returns:
+        str: 用户输入的值。
     """
     error_count = 0
     if error_msg_func is None:
@@ -234,9 +236,13 @@ def get_valid_input(prompt: str, condition_func, error_msg_func=None, max_errors
 
 
 def get_pyvers_from_paths(pypathlist: Iterable[str]) -> list[str | None]:
-    """
-    通过 Python 路径列表获取 Python 版本号列表，并支持异步并行获取。
-        <Return> list[str | None]: 获取到的 Python 版本号列表，如果路径无效则为 None。
+    """通过 Python 路径列表获取 Python 版本号列表，并支持异步并行获取。
+
+    Args:
+        paths (list[str]): Python 路径列表。
+
+    Returns:
+        list[str | None]: 获取到的 Python 版本号列表，如果路径无效则为 None。
     """
     sem = asyncio.Semaphore(5)
     if os.name == "nt":
@@ -286,14 +292,17 @@ def get_pyvers_from_paths(pypathlist: Iterable[str]) -> list[str | None]:
 
 
 def get_conda_homes(detect_mode=False) -> list[str]:
-    """
-    获取受支持的conda发行版的安装路径path的去重复列表。
-        <Note>  1. 默认仅返回第1个找到项，若detect_mode为True则返回所有找到项。
+    """获取受支持的 conda 发行版的安装路径去重列表。
+
+    Note:
+        1. 默认仅返回第 1 个找到的项，若 detect_mode 为 True 则返回所有找到的项。
+
+    Args:
+        detect_mode (bool): 是否返回所有找到的项，默认为 False。
     """
     available_conda_homes = []
     if os.name == "nt":
-        # 获取ProgramData路径
-        progradata_path = os.environ["ProgramData"]
+        progradata_path = os.environ["ProgramData"]  # 获取ProgramData路径
         for release_name in allowed_release_names:
             if release_name == "CONDA_PREFIX" and "CONDA_PREFIX" in os.environ:
                 available_conda_homes.append(os.environ["CONDA_PREFIX"])
@@ -410,7 +419,9 @@ def get_conda_homes(detect_mode=False) -> list[str]:
 def detect_conda_mamba_infos(conda_home: str):
     """
     检测 Conda 环境中是否安装了 Mamba 及其相关版本信息。
-        <返回> tuple: 包含以下信息的元组：
+
+    Returns:
+        tuple: 包含以下信息的元组：
             - is_mamba (bool): 是否安装了 Mamba。
             - mamba_version (str | None): Mamba 的版本号，如果未安装则为 None。
             - libmamba_solver_version (str | None): conda-libmamba-solver 的版本号，如果未安装则为 None。
@@ -445,10 +456,7 @@ def detect_conda_mamba_infos(conda_home: str):
 
 
 def should_show_other_envs(other_envs: list[str]):
-    """
-    根据当前的其他环境的列表 other_envs 判断其他环境是否有变化，并返回 Conda 发行版的路径。
-    """
-
+    """根据当前的其他环境的列表 other_envs 判断其他环境是否有变化，并返回 Conda 发行版的路径。"""
     is_changed = False
     last_other_envs = data_manager.get_data("other_envs_data").get("other_envs", [])
     is_changed = set(other_envs) != set(last_other_envs)
@@ -462,13 +470,12 @@ def should_show_other_envs(other_envs: list[str]):
 
 
 def detect_conda_installation(prior_release_name: str = ""):
-    """
-    检测 Conda 安装情况，并返回相关信息。
+    """检测 Conda 安装情况，并返回相关信息。
 
-    参数：
-        prior_release_name (str): 优先检测的发行版名称，默认为空字符串。
+    Args:
+        prior_release_name (str, optional): 优先检测的发行版名称，默认为空字符串。
 
-    返回：
+    Returns:
         tuple: 包含以下信息的元组：
             - conda_home (str | None): Conda 的安装路径，如果未检测到则为 "error"。
             - is_mamba (bool): 是否安装了 Mamba。
@@ -476,7 +483,6 @@ def detect_conda_installation(prior_release_name: str = ""):
             - libmamba_solver_version (str | None): conda-libmamba-solver 的版本号，如果未安装则为 None。
             - conda_version (str | None): Conda 的版本号，如果未安装则为 None。
     """
-
     global allowed_release_names
     if prior_release_name != "" and prior_release_name in allowed_release_names:
         allowed_release_names.insert(0, prior_release_name)
@@ -510,7 +516,6 @@ env_size_recalc_need_confirm = False
 
 def detect_conda_libmamba_solver_enabled() -> bool:
     """通过 .condarc 文件检测是否启用了libmamba求解器"""
-
     if not LIBMAMBA_SOLVER_VERSION:
         return False
     user_condarc_path = os.path.join(USER_HOME, ".condarc")
@@ -626,10 +631,12 @@ def get_paths_totalsize_list(pathlist: Iterable[str]) -> list[int]:
 
 def _get_envsizes_linux(pathlist: list[str]):
     """Linux下获取各环境的磁盘占用情况。
-    <Return> tuple: 包含以下信息的元组：
-        - real_usage_list (list[int]): 环境实际磁盘占用大小列表。
-        - total_size_list (list[int]): 环境表观总大小列表。
-        - disk_usage (int): Conda 环境总磁盘占用大小。
+
+    Returns:
+        tuple: 包含以下信息的元组：
+            - real_usage_list (list[int]): 环境实际磁盘占用大小列表。
+            - total_size_list (list[int]): 环境表观总大小列表。
+            - disk_usage (int): Conda 环境总磁盘占用大小。
     """
 
     class ProgressBar(Thread):
@@ -728,10 +735,12 @@ def _get_envsizes_linux(pathlist: list[str]):
 
 def _get_envsizes_windows(pathlist: list[str]):
     """Windows下获取各环境的磁盘占用情况。
-    <Return> tuple: 包含以下信息的元组：
-        - real_usage_list (list[int]): 环境实际磁盘占用大小列表。
-        - total_size_list (list[int]): 环境表观总大小列表。
-        - disk_usage (int): Conda 环境总磁盘占用大小。
+
+    Returns:
+        tuple: 包含以下信息的元组：
+            - real_usage_list (list[int]): 环境实际磁盘占用大小列表。
+            - total_size_list (list[int]): 环境表观总大小列表。
+            - disk_usage (int): Conda 环境总磁盘占用大小。
     """
 
     class ProgressBar(Thread):
@@ -745,7 +754,6 @@ def _get_envsizes_windows(pathlist: list[str]):
             self.bar_length = 10
 
         def run(self):
-            print()
             while True:
                 if not self.is_running.is_set():
                     break
@@ -773,6 +781,7 @@ def _get_envsizes_windows(pathlist: list[str]):
             set_terminal_text_style("LIGHT_YELLOW")
             self._show_process(finished=True)
             reset_terminal_text_style()
+            print("\n")
 
         def _show_process(self, finished=False):
             if self.num_files:
@@ -815,9 +824,9 @@ def _get_envsizes_windows(pathlist: list[str]):
 
             extra_info = f"[{elapsed_time_str}<{remaining_time_str}; {file_count_speed:,} f/s]"
 
-            clear_lines_above(1)
             if not finished:
-                print(bar + " - " + size_str + " - " + num_files_str + " " + extra_info)
+                print_str = bar + " - " + size_str + " - " + num_files_str + " " + extra_info
+                print(f"{print_str:<{fast_get_terminal_size().columns}}", end="\r")
             else:
                 print(size_str + " | " + num_files_str + " " + extra_info)
 
@@ -877,7 +886,6 @@ def _get_envsizes_windows(pathlist: list[str]):
                     executor.submit(get_disk_usage, path, root, nondirs)
 
     progress_bar.stop()
-    print("\n")
     data_manager.update_data("num_files_data", {"num_files": num_files})
 
     disk_usage = sum(real_usage_list)
@@ -886,23 +894,22 @@ def _get_envsizes_windows(pathlist: list[str]):
 
 
 def get_home_sizes(namelist: list[str], pathlist: list[str], pyverlist: list[str]):
-    """
-    获取环境的大小信息。
+    """获取环境的大小信息。
 
-    <Note>  此函数是前面两个函数的高级封装版本，应该直接调用本函数。
+    Notes:
+        1. 此函数是前面两个函数的高级封装版本，应该直接调用本函数。
+        2. 因为同一conda包的多次安装只会在pkgs目录下创建一次，其余环境均为硬链接，故实际磁盘占用会远小于表观大小；
 
-    返回：
+    Returns:
         tuple: 包含以下信息的元组：
             - name_sizes_dict (dict): 每个环境的大小信息字典。
-                其中每个键值对的键为环境名env_name，值为一个字典，包含以下键值对(key, value)：
+                其中每个键值对的键为环境名 env_name，值为一个字典，包含以下键值对(key, value)：
                     - ("real_usage", int): 环境实际磁盘占用大小。
                     - ("total_size", int): 环境表观总大小。
-                    - ("conda_mtime", int): conda-meta目录的最后修改时间。
-                    - ("pip_mtime", int): site-packages目录的最后修改时间。
+                    - ("conda_mtime", int): conda-meta 目录的最后修改时间。
+                    - ("pip_mtime", int): site-packages 目录的最后修改时间。
             - disk_usage (int): 总磁盘使用量。
     """
-    # 因为同一conda包的多次安装只会在pkgs目录下创建一次，其余环境均为硬链接，故实际磁盘占用会远小于表观大小；
-
     envs_size_data = data_manager.get_data("envs_size_data")
     last_env_sizes = envs_size_data.get("env_sizes", {})
     disk_usage = envs_size_data.get("disk_usage", 0)
@@ -1011,10 +1018,13 @@ def get_home_sizes(namelist: list[str], pathlist: list[str], pyverlist: list[str
 
 
 def _get_env_last_updated_date(env_path: str, pyver: str) -> str:
-    """
-    通过检查conda及pip的安装行为，获取环境的最后更新日期。
-    :return: str, 格式化的日期字符串"%Y-%m-%d" 或 "Unknown"
-        <Note>  用于env_lastmodified_timelist
+    """通过检查 conda 及 pip 的安装行为，获取环境的最后更新日期。
+
+    Returns:
+        str: 格式化的日期字符串 "%Y-%m-%d" 或 "Unknown"
+
+    Note:
+        用于 env_lastmodified_timelist
     """
     meta_history_path = os.path.join(env_path, "conda-meta", "history")
     if os.name == "nt":
@@ -1032,9 +1042,10 @@ def _get_env_last_updated_date(env_path: str, pyver: str) -> str:
 
 
 def _get_env_installation_date(env_path: str) -> str:
-    """
-    获取环境的安装日期。
-    :return: str, 格式化的日期字符串%Y-%m-%d 或 Unknown
+    """获取环境的安装日期。
+
+    Returns:
+        str: 格式化的日期字符串 "%Y-%m-%d" 或 "Unknown"
     """
     meta_history_path = os.path.join(env_path, "conda-meta", "history")
     if os.path.exists(meta_history_path):
@@ -1048,20 +1059,20 @@ def _get_env_installation_date(env_path: str) -> str:
 
 
 def _get_env_basic_infos():
-    """
-    获取环境的基本信息。
-        Returns:
-            env_namelist: list[str], 环境名列表
-            env_pathlist: list[str], 环境路径列表
-            env_validity_list: list[bool], 环境是否有效的布尔值列表
-            others_env_pathlist: list[str], 其他不受支持的环境路径列表
-        <Note>:
-            1.  若 .condarc 文件定义了 envs_dirs: ，则可能会引入不属于CONDA_HOME/envs下但同样受支持的环境；
-            2.  失效的环境为 CONDA_HOME/envs 和 .condarc文件定义的envs_dirs(但必须以envs结尾) 中的
-                不包含conda-meta/history的目录；
-            3.  env_...list的内容组成：CONDA_HOME/envs下的环境 + (可能的)其它受支持的环境 + (可能的)已经失效的环境；
-    """
+    """获取环境的基本信息。
 
+    Returns:
+        env_namelist: list[str], 环境名列表
+        env_pathlist: list[str], 环境路径列表
+        env_validity_list: list[bool], 环境是否有效的布尔值列表
+        others_env_pathlist: list[str], 其他不受支持的环境路径列表
+
+    Notes:
+        1. 若 .condarc 文件定义了 envs_dirs: ，则可能会引入不属于 CONDA_HOME/envs 下但同样受支持的环境；
+        2. 失效的环境为 CONDA_HOME/envs 和 .condarc 文件定义的 envs_dirs (但必须以 envs 结尾) 中的
+           不包含 conda-meta/history 的目录；
+        3. env_...list 的内容组成：CONDA_HOME/envs 下的环境 + (可能的)其它受支持的环境 + (可能的)已经失效的环境；
+    """
     env_namelist = []
     env_pathlist = []
     env_namelist_users = []
@@ -1114,14 +1125,29 @@ def _get_env_basic_infos():
     return env_namelist, env_pathlist, env_validity_list, others_env_pathlist
 
 
-def get_env_infos() -> dict[str, Union[int, list]]:
-    """
-    获取Conda环境的所有基本信息组成的字典 env_infos_dict。
+class EnvInfosDict(TypedDict):
+    env_num: int
+    valid_env_num: int
+    disk_usage: int
+    total_apparent_size: int
+    env_namelist: list[str]
+    env_pathlist: list[str]
+    env_lastmodified_timelist: list[str]
+    env_installation_time_list: list[str]
+    env_pyverlist: list[str]
+    env_realusage_list: list[int]
+    env_totalsize_list: list[int]
+    others_env_pathlist: list[str]
+    env_validity_list: list[bool]
 
-    ***** 注意 *****
+
+def get_env_infos() -> EnvInfosDict:
+    """获取 Conda 环境的所有基本信息组成的字典类 EnvInfosDict。
+
+    Attention:
+        * * * * * 注意 * * * * *
         此函数是整个脚本的三个主函数其一，负责主循环中 “获取环境信息” 功能。
     """
-
     env_namelist, env_pathlist, env_validity_list, others_env_pathlist = _get_env_basic_infos()
     env_num = len(env_namelist)
     valid_env_num = sum(env_validity_list)
@@ -1141,7 +1167,7 @@ def get_env_infos() -> dict[str, Union[int, list]]:
     env_totalsize_list = [name_sizes_dict[i]["total_size"] for i in env_namelist]
     total_apparent_size = sum(env_totalsize_list)
 
-    env_infos_dict = {
+    env_infos_dict: EnvInfosDict = {
         "env_num": env_num,  # int
         "valid_env_num": valid_env_num,  # int
         "disk_usage": disk_usage,  # int
@@ -1159,14 +1185,12 @@ def get_env_infos() -> dict[str, Union[int, list]]:
     return env_infos_dict
 
 
-def get_envs_prettytable(env_infos_dict) -> PrettyTable:
-    """
-    获取环境信息的 PrettyTable 表格对象。
+def get_envs_prettytable(env_infos_dict: EnvInfosDict) -> PrettyTable:
+    """获取环境信息的 PrettyTable 表格对象。
 
-    参数：
+    Args:
         env_infos_dict (dict): 环境信息字典。
     """
-
     env_num = env_infos_dict["env_num"]
     valid_env_num = env_infos_dict["valid_env_num"]
     disk_usage = env_infos_dict["disk_usage"]
@@ -1275,7 +1299,7 @@ def get_envs_prettytable(env_infos_dict) -> PrettyTable:
     return table
 
 
-def _print_header(table_rstrip_width: int, env_infos_dict):
+def _print_header(table_rstrip_width: int, env_infos_dict: EnvInfosDict):
     """打印主界面的标题信息。"""
 
     def _get_header_str():
@@ -1327,7 +1351,7 @@ def _print_header(table_rstrip_width: int, env_infos_dict):
     )
 
 
-def _print_envs_table(table: PrettyTable, env_infos_dict):
+def _print_envs_table(table: PrettyTable, env_infos_dict: EnvInfosDict):
     """打印环境表格。"""
 
     def __colorstr_interval(s, i):
@@ -1391,7 +1415,7 @@ def _get_main_prompt_str(valid_env_num: int) -> str:
     """打印主界面的用户输入提示。"""
 
     main_prompt_str = f"""
-允许的操作指令如下 (按{BOLD(YELLOW("[Q]"))}以退出, 按{BOLD(LIGHT_WHITE("[Tab]"))}切换当前显示模式 {BOLD(LIGHT_CYAN(main_display_mode))}):"""
+允许的操作指令如下 (按{BOLD(YELLOW("[Q]"))}以退出, 按{BOLD("[Tab]")}切换当前显示模式 {BOLD(LIGHT_CYAN(main_display_mode))}):"""
 
     boundarys = ["<", ">"] if valid_env_num > 9 else ["[", "]"]
     _s = "输入" if valid_env_num > 9 else "请按"
@@ -1418,18 +1442,18 @@ def _get_main_prompt_str(valid_env_num: int) -> str:
 
 
 def _prompt_and_validate_command(allowed_inputs: list[str], immediately_returned_chars: Iterable[str]) -> str:
-    """
-    提示并放回通过验证的用户输入的字符串，或者立即返回由 immediately_returned_chars 指定的字符。
-        此函数用于提示用户输入，并根据给定的允许输入列表验证输入是否合法，不合法则重新提示用户输入。
-            内部get_command函数使用get_char()获取输入，最多支持获取{_MAX_WIDTH-len(prompt)}个字符。
+    """提示并放回通过验证的用户输入的字符串，或者立即返回由 immediately_returned_chars 指定的字符。
 
-    参数：
+    此函数用于提示用户输入，并根据给定的允许输入列表验证输入是否合法，不合法则重新提示用户输入。
+    内部get_command函数使用get_char()获取输入，最多支持获取{_MAX_WIDTH-len(prompt)}个字符。
+
+    Args:
         allowed_inputs (list[str]): 允许的输入列表。
         immediately_returned_chars (list[str]): 立即返回的字符列表。
 
-    完整的用户提示信息如下：
-        "请输入对应指令，以回车结束："      或      "输入的指令 {user_inp} 不合法，请重新输入，以回车结束："
-        ">>> {user_inp}"                       ">>> {user_inp}"
+    Notes:
+        用户输入界面：    "请按下指令键，或输入命令并回车："
+                        "$ {user_inp}"
     """
 
     def refresh_line(prompt: str, user_inp: str, cursor_pos: int):
@@ -1439,8 +1463,11 @@ def _prompt_and_validate_command(allowed_inputs: list[str], immediately_returned
         print("\b" * len_to_print(user_inp[cursor_pos:]), end="", flush=True)
 
     def get_valid_command() -> str:
-        """简易的自定义input函数；支持特定字符立即返回；与仅在输入合法时提示符变绿后才可回车；
-        输入必须在一行内；及光标左右移动、退格删除、Esc清空、Ctrl+C退出。"""
+        """简易的自定义input函数。
+
+        支持特定字符立即返回；仅在输入合法时提示符变绿后才可回车；
+        输入必须在一行内；及光标左右移动、退格删除、Esc清空、Ctrl+C退出。
+        """
         _MAX_WIDTH = min(25, fast_get_terminal_size().columns - 2)  # 让输入不超过一行
         is_correct_input = False
         prompt = BOLD("$ ")
@@ -1508,11 +1535,11 @@ def _prompt_and_validate_command(allowed_inputs: list[str], immediately_returned
     return inp
 
 
-def show_info_and_get_input(env_infos_dict) -> str:
-    """
-    显示主界面信息并获取用户的操作指令以供 do_correct_action 函数执行相应操作。
+def show_info_and_get_input(env_infos_dict: EnvInfosDict) -> str:
+    """显示主界面信息并获取用户的操作指令以供 do_correct_action 函数执行相应操作。
 
-    ***** 注意 *****
+    Attention:
+        * * * * * 注意 * * * * *
         此函数是整个脚本的三个主函数其二，负责主循环中 “显示主界面信息和获取用户指令” 功能。
     """
     global main_display_mode
@@ -1563,23 +1590,22 @@ def show_info_and_get_input(env_infos_dict) -> str:
             return inp
 
 
-def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
-    """
-    根据用户按下或输入的值执行相应的操作，并返回两种状态码。
+def do_correct_action(inp, env_infos_dict: EnvInfosDict) -> Literal[0, 1]:
+    """根据用户按下或输入的值执行相应的操作，并返回两种状态码。
 
-    参数：
+    Args:
         inp (str): 用户按下或输入的指令。
         env_infos_dict (dict): 环境信息字典。
 
-    返回：
+    Returns:
         Literal[0, 1]: 状态码:
             - 1  表示需要继续显示环境列表 (即继续脚本主循环);
             - 0  表示正常进入环境 (即进入命令行，退出主循环)。
 
-    ***** 注意 *****
+    Attention:
+        * * * * * 注意 * * * * *
         此函数是整个脚本的三个主函数其三，负责主循环中 “根据用户输入执行相应的操作” 功能。
     """
-
     env_num = env_infos_dict["env_num"]
     valid_env_num = env_infos_dict["valid_env_num"]
     env_namelist = env_infos_dict["env_namelist"]
@@ -1592,7 +1618,6 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
 
     def _print_table(env_names: list[str], field_name_env="Env Name", color_func=lambda x: x):
         """验证 env_names 环境名称列表是否为空；若为空则返回 False；否则打印表格并返回 True。"""
-
         if not env_names:
             print(LIGHT_RED("[错误] 未检测到有效的环境编号！"))
             return False
@@ -1984,7 +2009,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
         command = get_cmd(["jupyter kernelspec list --json"])
         kernel_output = subprocess.run(command, shell=True, stdout=subprocess.PIPE, text=True).stdout
         kernel_dict = json.loads(kernel_output).get("kernelspecs", {})
-        # 创建表格对象
+        # 创建 Prettytable 表格对象
         kernel_names = []
         is_valid_kernels = []
         display_names = []
@@ -1992,11 +2017,10 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
         py_versions = []
         install_timestamps = []
         kernel_dirs = []
-        try:
-            value = kernel_dict.pop("python3")
+
+        value = kernel_dict.pop("python3", None)
+        if value:
             kernel_dict = {"python3": value, **kernel_dict}
-        except:
-            pass
 
         for k_name, k_info in kernel_dict.items():
             kernel_names.append(k_name)
@@ -2026,7 +2050,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
             if kernel_names[i] == "python3":
                 table.add_row(
                     [
-                        LIGHT_CYAN(f"[{i+1}]"),
+                        LIGHT_CYAN(f"{i+1}"),
                         LIGHT_CYAN(display_names[i]),
                         LIGHT_CYAN(py_versions[i]),
                         LIGHT_CYAN(install_timestamps[i]),
@@ -2039,7 +2063,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
             if is_valid_kernels[i]:
                 table.add_row(
                     [
-                        f"[{i+1}]",
+                        f"{i+1}",
                         display_names[i],
                         py_versions[i],
                         install_timestamps[i],
@@ -2049,7 +2073,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
             else:
                 table.add_row(
                     [
-                        LIGHT_RED(f"[{i+1}]"),
+                        LIGHT_RED(f"{i+1}"),
                         LIGHT_RED(display_names[i] + " (已失效)"),
                         LIGHT_RED("-"),
                         LIGHT_RED(install_timestamps[i]),
@@ -2059,11 +2083,11 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                     ]
                 )
 
-        # 打印表格
-        print(table)
         if not table._rows:
             print(LIGHT_YELLOW("[提示] 未检测到任何 Jupyter 内核注册！"))
             return 1
+        else:
+            print(table)  # 打印表格
         print()
         # 询问清理失效项
         if not all(is_valid_kernels):
@@ -2165,19 +2189,19 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 if os.path.exists(folder_path):
                     index_cache_size += get_folder_size(folder_path)
             index_cache_row = [
-                "[1]",
+                "1",
                 "Conda Index Caches",
                 print_fsize_smart(index_cache_size),
                 os.path.join("$CONDA_HOME", "pkgs", "cache", "*.json"),
             ]
             tarballs_cache_row = [
-                "[2]",
+                "2",
                 "Conda Unused Tarballs",
                 print_fsize_smart(tarballs_cache_size := result_json_dic["tarballs"]["total_size"]),
                 os.path.join("$CONDA_HOME", "pkgs", "(*.tar.bz2|*.conda)"),
             ]
             pkgs_cache_row = [
-                "[3]",
+                "3",
                 "Conda Unused Packages",
                 print_fsize_smart(pkgs_cache_size := result_json_dic["packages"]["total_size"]),
                 os.path.join("$CONDA_HOME", "pkgs", "(包文件夹)"),
@@ -2189,7 +2213,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 elif os.path.isfile(_path):
                     logs_and_temps_size += os.path.getsize(_path)
             logs_and_temps_row = [
-                "[4]",
+                "4",
                 "Conda Logs & Temps",
                 print_fsize_smart(logs_and_temps_size),
                 "Conda logfiles & tempfiles",
@@ -2201,7 +2225,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 pip_cache_size = 0
                 pip_cache_Description = BOLD("* DISABLED *")
             pip_cache_row = [
-                "[5]",
+                "5",
                 "Pip Cache",
                 print_fsize_smart(pip_cache_size),
                 pip_cache_Description,
@@ -2348,22 +2372,10 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
 
     # 如果按下的是[S]，则搜索指定Python版本下的包
     elif inp.upper() == "S":
+        is_legacy_solver = False
         if not IS_MAMBA and (not LIBMAMBA_SOLVER_VERSION or Version(LIBMAMBA_SOLVER_VERSION) < Version("23.9")):
-            print(
-                LIGHT_YELLOW(
-                    "[提示] 您的 conda-libmamba-solver 未安装或版本过低，无法使用搜索功能，请将 conda-libmamba-solver 升级到 23.9 及以上版本"
-                )
-            )
-            if CONDA_VERSION and Version(CONDA_VERSION) < Version("23"):
-                print("[提示] 您的 conda 版本过低，建议先升级 conda 到 23.10 及以上版本")
-                print("升级 conda 命令: conda update -n base -c defaults conda")
-
-            if LIBMAMBA_SOLVER_VERSION:
-                print("升级 libmamba 命令: conda update conda-libmamba-solver --freeze-installed")
-            else:
-                print("安装 libmamba 命令: conda install -n base conda-libmamba-solver")
-            print(LIGHT_YELLOW("请在 base 环境下执行以上命令。"))
-            return 1
+            is_legacy_solver = True
+            print(DIM("[提示] 您的 conda 版本过低，无法加速搜索，请升级到 23.10 及以上。"))
 
         print(f"(1) 请输入要{BOLD(LIGHT_YELLOW('搜索'))}的包关联的 Python 版本（为空默认全版本），以回车结束:")
         target_py_version = get_valid_input(
@@ -2481,15 +2493,15 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
             return new_version_str
 
         def filter_pkg_info(raw_pkginfo_dict: dict[str, Any]):
-            """
-            过滤、处理并原地更新 原始包信息字典 raw_pkginfo_dict。
+            """过滤、处理并原地更新原始包信息字典 raw_pkginfo_dict。
 
-            处理步骤:
-            1. 提取并确定构建前缀 (build_prefix)。
-            2. 提取并确定包的渠道 (channel)。
-            3. 提取并判断是否包含 CUDA (is_cuda)。
-            4. 从依赖项和约束条件中提取 Python 版本和 CUDA 版本。
-            5. 根据提取的信息更新原始包信息字典。
+            Notes:
+                处理步骤:
+                1. 提取并确定构建前缀 (build_prefix)。
+                2. 提取并确定包的渠道 (channel)。
+                3. 提取并判断是否包含 CUDA (is_cuda)。
+                4. 从依赖项和约束条件中提取 Python 版本和 CUDA 版本。
+                5. 根据提取的信息更新原始包信息字典。
             """
             build_prefix = None
             build_rsplit_list = raw_pkginfo_dict["build"].rsplit("_", 2)
@@ -2613,12 +2625,12 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
             raw_pkginfo_dict["cuda_version"] = cuda_version
 
         def find_python_version_range(python_version_str: str):
-            """
-            根据输入的 Python 版本字符串，返回支持的最小和最大 Python 版本。
+            """根据输入的 Python 版本字符串，返回支持的最小和最大 Python 版本。
 
-            返回:  tuple: 包含两个元素的元组:
-                - 最小支持的 Python 版本 (str 或 None): 如果存在最小版本限制，则返回该版本字符串；否则返回 None。
-                - 最大支持的 Python 版本 (str 或 None): 如果存在最大版本限制，则返回该版本字符串；否则返回 None。
+            Returns:
+                tuple: 包含两个元素的元组:
+                    - 最小支持的 Python 版本 (str 或 None): 如果存在最小版本限制，则返回该版本字符串；否则返回 None。
+                    - 最大支持的 Python 版本 (str 或 None): 如果存在最大版本限制，则返回该版本字符串；否则返回 None。
             """
             if not python_version_str:
                 return None, None
@@ -2715,16 +2727,17 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
             return None
 
         class MergePkgInfos:
-            """
-            合并包信息列表。
-            1. ref提供初筛结果，key为(name,version)，供后续为无Python版本的包提供最大最小Python版本的参考
-            2. 第一遍合并需考虑build_prefix一样，按build_number大小合并
-            3. 第二遍合并只考虑name, version, channel，并注明支持的最大Python版本，与是否存在CUDA包
+            """合并包信息列表。
+
+            Notes:
+                1. ref提供初筛结果，key为(name,version)，供后续为无Python版本的包提供最大最小Python版本的参考
+                2. 第一遍合并需考虑build_prefix一样，按build_number大小合并
+                3. 第二遍合并只考虑name, version, channel，并注明支持的最大Python版本，与是否存在CUDA包
             """
 
-            def __init__(self, pkginfo_dicts_list: list[dict[str, Any]]):
+            def __init__(self, pkginfos_list_raw: list[dict[str, Any]]):
                 self.pkginfo_ref_dict = {}
-                for pkginfo_dict in pkginfo_dicts_list:
+                for pkginfo_dict in pkginfos_list_raw:
                     name = pkginfo_dict["name"]
                     version = pkginfo_dict["version"]
                     channel = pkginfo_dict["channel"]
@@ -2810,9 +2823,11 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 return list(merged_pkginfos_dict.values())
 
             def merge_2nd(self, pkginfo_dicts_list: list[dict[str, Any]]):
-                """第二遍合并只考虑name, version, channel，并注明支持的最大Python版本，与是否存在CUDA包"""
-                # 注意！这不是merge_iteration == 1的基础上再合并，而是重新从pkginfos_list_raw开始合并
+                """第二遍合并只考虑name, version, channel，并注明支持的最大Python版本，与是否存在CUDA包
 
+                Notes:
+                    注意！这不是在 merge_1st 的基础上再合并，而是重新从 pkginfos_list_raw 开始合并
+                """
                 merged_pkginfos_dict = {}
                 for pkginfo_dict in pkginfo_dicts_list:
                     name = pkginfo_dict["name"]
@@ -2941,6 +2956,68 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                         }
                 return list(merged_pkginfos_dict.values())
 
+        def get_pkginfos_list_raw(use_cache: bool, query_option: str) -> list[dict[str, Any]]:
+            """根据指定是否使用缓存和查询字符串，获取原始的包信息列表。
+
+            该函数将根据 is_legacy_solver: bool 决定是否使用 repoquery 命令以加速搜索。
+
+            Args:
+                use_cache (bool): 是否使用缓存。如果为 True，则使用缓存的索引数据。
+                query_option (str): 查询字符串，用于指定查询包的信息和相应源。
+
+            Returns:
+                list[dict[str, Any]]: 原始包信息列表。如果解析失败，或结果为空，则返回空列表。
+            """
+            if is_legacy_solver:
+                head_cmd = "conda search"
+            else:
+                head_cmd = "mamba repoquery search"
+
+            cmd_str = f'{head_cmd} {query_option} --json --quiet {"--use-index-cache" if use_cache else ""}'
+
+            command = get_cmd([cmd_str])
+
+            if "mamba repoquery search" in command:  # 解决win下的mamba输出强制utf-8编码问题
+                result_text = subprocess.run(
+                    command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, shell=True
+                ).stdout.decode("utf-8")
+            else:
+                result_text = subprocess.run(
+                    command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, shell=True, text=True
+                ).stdout
+
+            is_error = False
+            pkginfos_list_raw = []
+
+            try:
+                result_json = json.loads(result_text)
+            except json.JSONDecodeError:
+                is_error = True
+                result_json = {}
+
+            if is_legacy_solver:
+                if "error" in result_json:
+                    if "PackagesNotFoundError" not in result_json["error"]:
+                        is_error = True
+                elif result_json and "error" not in result_json:
+                    pkginfos_list_raw = [item for sublist in result_json.values() for item in sublist]
+                    for pkginfo_dict in pkginfos_list_raw:
+                        if "timestamp" not in pkginfo_dict:
+                            pkginfo_dict["timestamp"] = 0
+                        else:
+                            pkginfo_dict["timestamp"] = int(pkginfo_dict["timestamp"] / 1000)
+            else:  # mamba 或 conda >= 23.9
+                if not result_json.get("result"):
+                    is_error = True
+                pkginfos_list_raw = result_json.get("result", {}).get("pkgs", [])
+
+            if is_error:
+                print(LIGHT_RED("[错误] 搜索结果解析失败！原始结果如下:"))
+                print("-" * 10 + "\n" + result_text + "\n" + "-" * 10)
+                return []
+
+            return pkginfos_list_raw
+
         def search_pkgs_main(target_py_version: str):
             """搜索Conda包任务的主函数"""
 
@@ -2981,53 +3058,34 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 search_pkg_info = inp
 
             search_pkg_name = search_pkg_info.split("=", 1)[0]
+            print(f"正在搜索 ({LIGHT_CYAN(search_pkg_info)})...")
+            t0_search = time.time()
 
             total_channels = add_channels + ["pytorch", "nvidia", "intel", "conda-forge", "defaults"]
             total_channels = ordered_unique(total_channels)
+            query_option = f'"{search_pkg_info}" {" ".join(["-c "+i for i in total_channels])}'
+
             search_meta_data = data_manager.get_data("search_meta_data")
             if search_meta_data.get("last_update_time", 0) >= (
                 time.time() - CFG_SEARCH_CACHE_EXPIRE_MINUTES * 60
             ) and set(total_channels).issubset(search_meta_data.get("total_channels", [])):
-                command_str = f'mamba repoquery search "{search_pkg_info}" {" ".join(["-c "+i for i in total_channels])} --json --quiet --use-index-cache'
+                use_cache = True
                 search_meta_data["total_channels"] = list(
                     set(total_channels) | set(search_meta_data.get("total_channels", []))
                 )
             else:
-                command_str = f'mamba repoquery search "{search_pkg_info}" {" ".join(["-c "+i for i in total_channels])} --json --quiet'
+                use_cache = False
                 search_meta_data["total_channels"] = total_channels
             search_meta_data["last_update_time"] = time.time()
             data_manager.update_data("search_meta_data", search_meta_data)
 
-            command = get_cmd([command_str])
+            pkginfos_list_raw = get_pkginfos_list_raw(use_cache, query_option)
 
-            print(f"正在搜索 ({LIGHT_CYAN(search_pkg_info)})...")
-            t0_search = time.time()
-            if "mamba repoquery search" in command:
-                result_text = subprocess.run(
-                    command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, shell=True
-                ).stdout.decode(
-                    "utf-8"
-                )  # win下的mamba输出强制utf-8编码问题
-            else:
-                result_text = subprocess.run(
-                    command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, shell=True, text=True
-                ).stdout
-            clear_lines_above(1)
-            try:
-                result_json = json.loads(result_text)
-            except json.JSONDecodeError:
-                print(LIGHT_RED("[错误] 搜索结果解析失败！原始结果如下:"))
-                print(result_text)
-                exit(1)
-
-            if not result_json.get("result", {}).get("pkgs"):
-                if not result_json.get("result"):
-                    print(json.dumps(result_json, indent=4))
+            if not pkginfos_list_raw:
                 print(LIGHT_YELLOW(f"[警告] 未搜索到任何相关包 ({round(time.time() - t0_search, 2)} s)！"))
                 return
-            pkginfos_list_raw = result_json["result"]["pkgs"]
-            # pkginfos_list_* :list[dict[str, Any]]每一dict是一个包的信息，list是不同的包组成的列表
 
+            # pkginfos_list_* :list[dict[str, Any]]每一dict是一个包的信息，list是不同的包组成的列表
             for pkginfo_dict in pkginfos_list_raw:
                 filter_pkg_info(pkginfo_dict)
 
@@ -3085,7 +3143,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 def __lt__(self, other):
                     return self > other
 
-            def _sort_by_name(name_str: str):  # v2.0版
+            def _sort_by_name(name_str: str):  # 第二版
                 search_name = search_pkg_name.replace("*", "")
                 if search_name:
                     forward, _, backward = name_str.partition(search_name)
@@ -3120,13 +3178,16 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
             def _get_overview_table(
                 pkg_overviews_list: list[dict[str, Any]], user_options
             ) -> tuple[PrettyTable, bool]:
-                """
-                适用于user_options["ui_mode"]等于1的情况。
-                <Returns>: (table, is_display_omitted) -- 同 _get_pkgs_table 函数
-                <Note>:
+                """适用于user_options["ui_mode"]等于1的情况。
+
+                Returns:
+                    tuple[PrettyTable, bool]: 同 _get_pkgs_table 函数
+
+                Note:
                     table会尽量显示完整name字段(保证name字段长度>=_NAME_MIN_WIDTH)，为此可能会：
                         省略build_count字段->省略timestamp字段->省略channel字段
                 """
+
                 terminal_width = fast_get_terminal_size().columns
                 ver_len_maxlim = 15
 
@@ -3154,7 +3215,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 if user_options["select_mode"]:
                     table_fields.insert(0, number_field)
 
-                table_padding_width = 2
+                table_padding_width = 1
                 f_number_width = len(f"[{len(pkg_overviews_list)}]") if user_options["select_mode"] else 0
                 f_version_width = len_to_print(version_field)
                 f_channel_width = len_to_print(channel_field)
@@ -3180,18 +3241,18 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                     - f_cuda_width
                     - f_timestamp_width
                     - f_build_count_width
-                    - table_padding_width * (8 if user_options["select_mode"] else 7)
+                    - table_padding_width * (8 * 2 if user_options["select_mode"] else 7 * 2)
                 )
                 _NAME_MIN_WIDTH = 20
                 if name_len_maxlim < _NAME_MIN_WIDTH:
                     _hidden_fields.append(build_count_field)
-                    name_len_maxlim += f_build_count_width + table_padding_width
+                    name_len_maxlim += f_build_count_width + table_padding_width * 2
                 if name_len_maxlim < _NAME_MIN_WIDTH:
                     _hidden_fields.append(timestamp_field)
-                    name_len_maxlim += f_timestamp_width + table_padding_width
+                    name_len_maxlim += f_timestamp_width + table_padding_width * 2
                 if name_len_maxlim < _NAME_MIN_WIDTH:
                     _hidden_fields.append(channel_field)
-                    name_len_maxlim += f_channel_width + table_padding_width
+                    name_len_maxlim += f_channel_width + table_padding_width * 2
                 name_len_maxlim = max(name_len_maxlim, _NAME_MIN_WIDTH)
 
                 hidden_field_indexes = {table_fields.index(field) for field in _hidden_fields}
@@ -3200,6 +3261,8 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                     is_display_omitted = True
                     table_fields = _hidden_columns(table_fields, hidden_field_indexes)
                 table = PrettyTable(table_fields)
+                if user_options["select_mode"]:
+                    table.align[number_field] = "l"
                 table.align[name_field] = "l"
                 table.align[version_field] = "c"
                 table.align[channel_field] = "r"
@@ -3207,6 +3270,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 table.align[cuda_field] = "r"
                 table.align[timestamp_field] = "r"
                 table.align[build_count_field] = "r"
+                table.padding_width = table_padding_width
                 table.border = False
 
                 if len(pkg_overviews_list) == 0:
@@ -3288,7 +3352,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                         f"{pkg_overview['build_count']} builds",
                     ]
                     if user_options["select_mode"]:
-                        row.insert(0, f"[{i}]")
+                        row.insert(0, f"{i}")
                     if hidden_field_indexes:
                         row = _hidden_columns(row, hidden_field_indexes)
                     table.add_row(row)
@@ -3393,12 +3457,14 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 return ",".join(versions)
 
             def _get_pkgs_table(pkginfos_list: list[dict[str, Any]], user_options) -> tuple[PrettyTable, bool]:
-                """
-                适用于user_options["ui_mode"]等于2或3的情况。
-                <Returns>: (table, is_display_omitted)
-                    table: PrettyTable
-                    is_display_omitted：是否有内容(因为终端宽度太小)被省略而未被显示
-                <Note>:
+                """适用于user_options["ui_mode"]等于2或3的情况。
+
+                Returns:
+                    tuple[PrettyTable, bool]: 包含以下内容：
+                        table: PrettyTable
+                        is_display_omitted: 是否有内容(因为终端宽度太小)被省略而未被显示
+
+                Note:
                     table会尽量显示完整name字段(保证name字段长度>=_NAME_MIN_WIDTH)，为此可能会：
                         减少build字段长度->省略build字段->省略size字段->省略timestamp字段
                 """
@@ -3469,7 +3535,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 size_field = (" " * 3 if max_cuda_len < 6 + 2 else "") + "Size" + __add_sort_flag("size")
                 timestamp_field = "UTC_Time" + __add_sort_flag("timestamp")
 
-                table_padding_width = 2
+                table_padding_width = 1
                 f_number_width = len(f"[{len(pkginfos_list)}]") if user_options["select_mode"] else 0
                 f_version_width = len_to_print(version_field)
                 f_build_width = len_to_print(build_field)
@@ -3498,7 +3564,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                         - f_cuda_version_width
                         - f_size_width
                         - f_timestamp_width
-                        - table_padding_width * (9 if user_options["select_mode"] else 8)
+                        - table_padding_width * (9 * 2 if user_options["select_mode"] else 8 * 2)
                     )
                     while name_len_maxlim < max_name_len:
                         is_display_omitted = True
@@ -3513,13 +3579,13 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                     _NAME_MIN_WIDTH = 15
                     if name_len_maxlim < _NAME_MIN_WIDTH:
                         _hidden_fields.append(build_field)
-                        name_len_maxlim += f_build_width + table_padding_width
+                        name_len_maxlim += f_build_width + table_padding_width * 2
                     if name_len_maxlim < _NAME_MIN_WIDTH:
                         _hidden_fields.append(size_field)
-                        name_len_maxlim += f_size_width + table_padding_width
+                        name_len_maxlim += f_size_width + table_padding_width * 2
                     if name_len_maxlim < _NAME_MIN_WIDTH:
                         _hidden_fields.append(timestamp_field)
-                        name_len_maxlim += f_timestamp_width + table_padding_width
+                        name_len_maxlim += f_timestamp_width + table_padding_width * 2
                     name_len_maxlim = max(name_len_maxlim, _NAME_MIN_WIDTH)
 
                 elif len(pkginfos_list):  # user_options["ui_mode"] == 3 且有包时
@@ -3545,6 +3611,8 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                     is_display_omitted = True
                     table_fields = _hidden_columns(table_fields, hidden_field_indexes)
                 table = PrettyTable(table_fields)
+                if user_options["select_mode"]:
+                    table.align[number_field] = "l"
                 table.align[name_field] = "l"
                 table.align[version_field] = "l"
                 table.align[build_field] = "l"
@@ -3553,7 +3621,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 table.align[cuda_version_field] = "c"
                 table.align[size_field] = "r"
                 table.align[timestamp_field] = "r"
-                # table.padding_width = table_padding_width
+                table.padding_width = table_padding_width
                 table.border = False
 
                 if len(pkginfos_list) == 0:
@@ -3614,7 +3682,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                         ),
                     ]
                     if user_options["select_mode"]:
-                        row.insert(0, f"[{i}]")
+                        row.insert(0, f"{i}")
                     if hidden_field_indexes:
                         row = _hidden_columns(row, hidden_field_indexes)
                     table.add_row(row)
@@ -3622,16 +3690,18 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 return table, is_display_omitted
 
             def _data_processing_transaction(user_options) -> list[dict[str, Any]]:
-                """
-                根据 用户选项（user_options）
-                    处理相应的包信息列表：
-                            - pkginfos_list_raw (若ui_mode == 3)
-                        或   - pkginfos_list_iter1 (若ui_mode == 2)
-                        或   - pkginfos_list_iter2 (若ui_mode == 1 且 merge_version == False)
-                        或   - pkginfos_list_iter3 (若ui_mode == 1 且 merge_version == True)
-                    并返回 处理后的包信息列表 交由 _print_transcation 显示。
-                *** 注意 ***
-                    这是search_pkgs_main内的3个主事务函数其一，实现 “数据处理事务”。
+                """根据用户选项（user_options）处理相应的包信息列表：
+
+                - pkginfos_list_raw (若 ui_mode == 3)
+                - pkginfos_list_iter1 (若 ui_mode == 2)
+                - pkginfos_list_iter2 (若 ui_mode == 1 且 merge_version == False)
+                - pkginfos_list_iter3 (若 ui_mode == 1 且 merge_version == True)
+
+                并返回处理后的包信息列表交由 _print_transcation 显示。
+
+                Attention:
+                    * * * 注意 * * *
+                    这是 search_pkgs_main 内的 3 个主事务函数其一，实现 “数据处理事务”。
                 """
 
                 def _get_python_versionstr(version_str: str):
@@ -3799,11 +3869,13 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 return pkginfos_list
 
             def _print_transcation(pkginfos_list: list[dict[str, Any]], first_print=False):
-                """
-                根据已由_data_processing_transaction处理的包信息列表，
-                    调用_get_pkgs_table生成PrettyTable对象并智能地打印表格到终端。
-                *** 注意 ***
-                    这是search_pkgs_main内的3个主事务函数其二，实现 “打印事务”。
+                """根据已由 _data_processing_transaction 处理的包信息列表，
+
+                调用 _get_pkgs_table 生成 PrettyTable 对象并智能地打印表格到终端。
+
+                Attention:
+                    * * * 注意 * * *
+                    这是 search_pkgs_main 内的 3 个主事务函数其二，实现 “打印事务”。
                 """
                 table, is_display_omitted = _get_pkgs_table(pkginfos_list, user_options)
                 table_header, table_body = table.get_string().split("\n", 1)
@@ -3834,15 +3906,17 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 )
 
             def _get_user_options(user_options, pkginfos_list: list[dict[str, Any]]) -> int:
-                """
-                根据现有的用户选项和处理后的包信息列表：
-                    1.  打印用户选项菜单
-                    2.  获取用户输入
-                        2.1  显示一些信息
-                        2.2  更新用户选项
-                    3.  返回已打印到终端的实际行数 num_lines
-                *** 注意 ***
+                """根据现有的用户选项和处理后的包信息列表：
+                    1. 打印用户选项菜单
+                    2. 获取用户输入
+                        2.1 显示一些信息
+                        2.2 更新用户选项
+                    3. 返回已打印到终端的实际行数 num_lines
+
+                Attention:
+                    * * * 注意 * * *
                     这是search_pkgs_main内的3个主事务函数其三，实现 “人机交互事务”。
+
                 """
 
                 def __count_and_print(s: str) -> int:
@@ -3901,9 +3975,9 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                                     pkginfo_dict_copy.pop("cuda_version", None)
                                     pkginfo_dict_copy.pop("is_cuda", None)
                                     if not pkginfo_dict_copy.get("track_features"):
-                                        pkginfo_dict_copy.pop("track_features")
+                                        pkginfo_dict_copy.pop("track_features", None)
                                     if not pkginfo_dict_copy.get("constrains"):
-                                        pkginfo_dict_copy.pop("constrains")
+                                        pkginfo_dict_copy.pop("constrains", None)
                                     print_str = json.dumps(pkginfo_dict_copy, indent=4, skipkeys=True)
                                     num_lines += __count_and_print(print_str)
                             elif key.find("@") != -1:
@@ -4163,11 +4237,9 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 return num_lines
 
             user_options = {
-                "ui_mode": 1,  # 显示模式(取值为1,2,3，由按键决定) 1对应pkginfos_list_iter2，2对应pkginfos_list_iter1，3对应pkginfos_list_raw
-                "sort_by": [
-                    "",
-                    True,
-                ],  # 排序依据，按键[S]
+                # 显示模式(按键[1],[2],[3]) 1对应pkginfos_list_iter2，2对应pkginfos_list_iter1，3对应pkginfos_list_raw
+                "ui_mode": 1,
+                "sort_by": ["", True],  # 排序依据，按键[S]
                 "filters": {  # 过滤器字典，按键[F]
                     "name": None,  # 名称过滤器，取值为字符串或None
                     "version": None,  # 版本过滤器，取值为字符串或None
@@ -4176,7 +4248,7 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                     "cuda_version": None,  # CUDA 版本过滤器，取值为字符串或None
                     "is_cuda_only": False,  # 是否 CUDA 过滤器，取值为布尔值
                 },
-                "select_mode": False,
+                "select_mode": False,  # 是否进入选择模式，按键[V]
                 "merge_version": False,  # 是否合并版本号相同的包，dipslay_mode为1时有效
                 "reversed_display": False,  # 倒序显示，ui_mode为1时有效
                 "exit": False,  # 退出标志，按键Esc或Ctrl+C为其赋值
@@ -4220,12 +4292,8 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
     # 如果按下的是[H]，则显示由"conda doctor"命令出具的Conda环境健康报告
     elif inp.upper() == "H":
         if not CONDA_VERSION or Version(CONDA_VERSION) < Version("23.5.0"):
-            print(
-                LIGHT_RED(
-                    "[错误] conda doctor 命令需要 conda 23.5.0 及以上版本支持，请在 base 环境升级 conda 后重试！"
-                )
-            )
-            print("升级 conda 命令: conda update -n base -c defaults conda")
+            print(LIGHT_RED("[错误] conda doctor 子命令需要 23.5 及以上版本支持，请在 base 环境升级后重试！"))
+            print("      升级 conda 命令: conda update -n base -c defaults conda")
             return 1
         print(
             f"(1) 请输入想要{BOLD(LIGHT_GREEN('检查完整性'))}的环境的编号（默认为全部），多个以空格隔开，以回车结束: "
@@ -4292,13 +4360,10 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
     # 如果按下的是[Q]，则退出
     elif inp.upper() == "Q":
         res = 0
-    # 如果输入的是数字[编号]，则进入对应的环境
+    # 如果输入的是数字[编号]，则激活对应的环境，然后进入命令行
     else:
         res = 0
-        # 通过列表的索引值获取对应的环境名称
         name = env_namelist[int(inp) - 1]
-        # 激活环境，然后进入命令行
-        # clear_screen(FULL_TERMINAL_CLEAR)
         if os.name == "nt":
             conda_hook_path = os.path.join(CONDA_HOME, "shell", "condabin", "conda-hook.ps1")
             command = [
@@ -4309,11 +4374,11 @@ def do_correct_action(inp, env_infos_dict) -> Literal[0, 1]:
                 "-Command",
                 f'& "{conda_hook_path}" ; conda activate "{name}"',
             ]
-            subprocess.Popen(command)  # Popen是异步执行，不会阻塞
         else:
             cmd_str = get_linux_activation_shell_cmd() + f" && conda activate '{name}'"
-            command = f'bash --init-file <(echo ". $HOME/.bashrc; {cmd_str}")'
-            subprocess.run(["bash", "-c", command])
+            command = ["bash", "-c", f'bash --init-file <(echo ". $HOME/.bashrc; {cmd_str}")']
+
+        subprocess.run(command)
 
     return res
 
@@ -4452,25 +4517,3 @@ if __name__ == "__main__":
         main(workdir)
     else:
         raise ValueError(LIGHT_RED("[错误] 传入的参数不是一个目录！"))
-
-# ***** 版本更新日志 *****
-# 2023-9-26 v0.1 稳定版
-# 2023-9-27 v0.2 稳定版,增加了对Linux系统的全面适配
-# 2023-9-27 23:29 v0.2.10 完全版,优化了一些细节
-# 2023-9-28 v0.2.100 完全版,增加了探测所有可用发行版的功能，修复了一些错误
-# 2023-9-28 16:19--20:08 v0.3 稳定完全版,优化显示模块,优化逻辑，修复小错误，全面完善功能
-# 2023-9-28 22:50 v0.3.100 发行版,增加搜索包功能，增加退出功能
-# 2023-9-29 中秋 验收完毕
-# 2023-10-12 v0.5.0 大大增强了发行版的识别成功率
-# 2024-3-16 v1.0.rc0 改善代码逻辑，修复若干问题，添加复制环境功能[P]，打开环境主目录功能[=编号]；优化使用体验
-# 2024-4-1 v1.0 (Release) 全新的[S]搜索功能，臻品打造，全面重构了代码，完善了相应功能，优化了用户体验
-# 2024-4-2 v1.0.1 fix bugs ; 2024-4-3 fix; 2024-4-4 增加健康报告[H]功能，优化主界面显示，fix; 2024-4-5 v1.0.6 (Release) fix bugs
-# 2024-4-23 v1.7.beta 显示大量代码重构，函数逻辑优化；主界面显示优化，增加磁盘占用列显示 (支持统计所有环境的表观大小与实际磁盘占用)
-# 2024-5-12 v1.7.rc1 优化界面显示，更加友好化的操作逻辑；优化环境大小统计功能；修复了一些bug
-# 2024-5-15 v1.7.rc2 修复了一些bug；优化了一些显示与操作逻辑；
-# 2024-5-16 ~ 2024-5-19 v1.7 (Release) 优化了搜索结果界面的显示，增加了适应终端宽度的功能; fix bugs; 正式发布版
-# 2024-5-28 v1.7.3 在 Github 上正式发布的版本（已验证各功能的有效性）
-# 2024-6-13 v1.8.0-rc0 优化并统一了Linux和Windows下的环境大小计算逻辑，并指定时间限制：只要上一次用时超限，下一次则需用户按<D>确认才计算
-# 2024-6-16 ~ 2024-6-19 v1.8.0 更改操作指令逻辑为按下后立即返回；修复了一些bug。
-# **********************
-# 致谢：OpenAI ChatGPT，Github Copilot

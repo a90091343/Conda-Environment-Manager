@@ -1,7 +1,5 @@
 # v1.8.0
 import re
-import os
-import sys
 
 
 def translate_script(input_file, output_file, translation_dict):
@@ -68,12 +66,7 @@ translation_dict = {
     "(2) 确认更新以上环境吗？[y(回车)/n]": "(2) Are you sure you want to update the above environment(s)? [y(Enter)/n]",
     "[警告] 检测到如下由 Pip 管理的包，更新可能会出现问题！": "[Warning] The following packages managed by Pip are detected, and problems may occur during the update!",
     "[提示] 已自动启用附加源: ": "[Tip] Additional sources have been automatically enabled: ",
-    "[提示] 您的 conda-libmamba-solver 未安装或版本过低，无法使用搜索功能，请将 conda-libmamba-solver 升级到 23.9 及以上版本": "[Tip] Your conda-libmamba-solver is NOT installed or the version is too low, and the search function cannot be used. Please upgrade conda-libmamba-solver to version 23.9 or higher",
-    "[提示] 您的 conda 版本过低，建议先升级 conda 到 23.10 及以上版本": "[Tip] Your conda version is too low, it is recommended to upgrade conda to version 23.10 or higher first",
-    "升级 conda 命令: ": "Upgrade conda command: ",
-    "升级 libmamba 命令: ": "Upgrade libmamba command: ",
-    "安装 libmamba 命令: ": "Install libmamba command: ",
-    "请在 base 环境下执行以上命令。": "Please execute the above commands in the base environment.",
+    "[提示] 您的 conda 版本过低，无法加速搜索，请升级到 23.10 及以上。": "[Tip] Your conda version is too low to accelerate the search, please upgrade to 23.10 or above.",
     "(1) 请输入要{BOLD(LIGHT_YELLOW('搜索'))}的包关联的 Python 版本（为空默认全版本），以回车结束:": "(1) Please enter the Python version associated with the package you want to {BOLD(LIGHT_YELLOW('search'))} (leave blank for all versions), and press <Enter> to end:",
     "[提示1] 搜索默认启用的源为": "[Tip1] The default enabled source for search is ",
     "如需额外源请在末尾添加 -c 参数": " If you need additional sources, please add the -c parameter at the end",
@@ -121,7 +114,7 @@ translation_dict = {
     "搜索完成 ({round(time.time() - t0_search, 2)} s)！": "Search completed ({round(time.time() - t0_search, 2)} s)!",
     "(i) 是否继续为 Python {target_py_version} 查找包? [Y(回车)/n]": "(i) Do you want to continue searching for packages for Python {target_py_version}? [Y(Enter)/n]",
     "(i) 是否继续为所有 Python 版本查找包? [Y(回车)/n]": "(i) Do you want to continue searching for packages for all Python versions? [Y(Enter)/n]",
-    "[错误] conda doctor 命令需要 conda 23.5.0 及以上版本支持，请在 base 环境升级 conda 后重试！": "[Error] The conda doctor command requires conda 23.5.0 and above to support, please upgrade conda in the base environment and try again!",
+    "[错误] conda doctor 子命令需要 23.5 及以上版本支持，请在 base 环境升级后重试！": "[Error] The conda doctor subcommand requires version 23.5 and above to support, please upgrade in the base environment and try again!",
     "(1) 请输入想要{BOLD(LIGHT_GREEN('检查完整性'))}的环境的编号（默认为全部），多个以空格隔开，以回车结束: ": "(1) Please enter the number(s) of environment(s) you want to {BOLD(LIGHT_GREEN('check the integrity'))} (default is all), separated by spaces, and press <Enter> to end: ",
     "请输入 Conda/Mamba 发行版的安装路径，如 C:\\\\Users\\\\USER_NAME\\\\anaconda3: ": "Please enter the installation path of the Conda/Mamba distribution, such as C:\\\\\\\\Users\\\\\\\\USER_NAME\\\\\\\\anaconda3: ",
     "请输入 Conda/Mamba 发行版的安装路径，如 /home/USER_NAME/anaconda3: ": "Please enter the installation path of the Conda/Mamba distribution, such as /home/USER_NAME/anaconda3: ",
@@ -142,7 +135,7 @@ translation_dict = {
     "[{i}]\\t{os.path.split(condapath)[1]}\\t{condapath} (当前)": "[{i}]\\\\t{os.path.split(condapath)[1]}\\\\t{condapath} (Current)",
     "[提示] 检测到如下其它发行版的环境，或未安装在规范目录下的环境，将不会被显示与管理:": "[Tip] The following environments from other distributions or those NOT installed in the standard directory will NOT be displayed or managed:",
     "{' 以上信息仅在不受支持的环境有变化时显示 ':*^55}": "{' This information is displayed only when unsupported environments change ':*^55}",
-    '允许的操作指令如下 (按{BOLD(YELLOW("[Q]"))}以退出, 按{BOLD(LIGHT_WHITE("[Tab]"))}切换当前显示模式 {BOLD(LIGHT_CYAN(main_display_mode))}):': 'Allowed commands (press {BOLD(YELLOW("[Q]"))} to quit, {BOLD(LIGHT_WHITE("[Tab]"))} to switch the current display mode {BOLD(LIGHT_CYAN(main_display_mode))}):',
+    '允许的操作指令如下 (按{BOLD(YELLOW("[Q]"))}以退出, 按{BOLD("[Tab]")}切换当前显示模式 {BOLD(LIGHT_CYAN(main_display_mode))}):': 'Allowed commands (press {BOLD(YELLOW("[Q]"))} to quit, {BOLD("[Tab]")} to switch the current display mode {BOLD(LIGHT_CYAN(main_display_mode))}):',
     '激活环境对应命令行{_s}编号{boundarys[0]}{BOLD(LIGHT_YELLOW(f"1-{valid_env_num}"))}{boundarys[1]};浏览环境主目录输入<{BOLD(LIGHT_GREEN("@编号"))}>;': 'Activate environment by number {boundarys[0]}{BOLD(LIGHT_YELLOW(f"1-{valid_env_num}"))}{boundarys[1]}; Browse the env directory by <{BOLD(LIGHT_GREEN("@Number"))}>;',
     '删除环境按{BOLD(RED("[-]"))};新建环境按{BOLD(LIGHT_GREEN("[+]"))};重命名环境按{BOLD(LIGHT_BLUE("[R]"))};复制环境按{BOLD(LIGHT_CYAN("[P]"))};': '{BOLD("For env(s)")}: Delete by {BOLD(RED("[-]"))}; Create new by {BOLD(LIGHT_GREEN("[+]"))}; Rename by {BOLD(LIGHT_BLUE("[R]"))}; Copy by {BOLD(LIGHT_CYAN("[P]"))};',
     '显示并回退至环境的历史版本按{BOLD(LIGHT_MAGENTA("[V]"))};': 'View and roll back to historical version of the environment by {BOLD(LIGHT_MAGENTA("[V]"))};',
