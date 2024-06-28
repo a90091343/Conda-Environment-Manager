@@ -15,15 +15,17 @@ from ColorStr import *
 
 
 def version_parse(version: str):
+    """解析版本字符串，若解析失败则会依次尝试继续解析，直到返回"0"版本。"""
     try:
         return Version(version)
     except InvalidVersion:
-        try:
-            from packaging.version import LegacyVersion  # type: ignore
-
-            return LegacyVersion(version)
-        except ImportError:
-            return Version("0")
+        version = re.sub(r"[^a-zA-Z0-9]", ".", version)
+        while version:
+            try:
+                return Version(version)
+            except InvalidVersion:
+                version = version[:-1]
+        return Version("0")
 
 
 def remove_color_from_str(colorful_str: str) -> str:
@@ -140,9 +142,8 @@ def get_printed_line_count(text: str) -> int:
     return num_lines
 
 
-def print_fsize_smart(fsize: int, precision: int = 3, B_suffix: bool = True) -> str:
-    """返回文件大小的格式化的字符串 by chatGPT"""
-    assert type(fsize) == int, "fsize must be an integer"
+def format_size(fsize: int, sig_digits: int = 3, B_suffix: bool = True) -> str:
+    """返回文件大小的格式化的字符串（有效数字 sig_digits 小于3不会阻止整数部分的显示）。"""
     # 转换为合适的单位
     units_B = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"]
     units_non_B = ["B", "K", "M", "G", "T", "P"]
@@ -150,29 +151,28 @@ def print_fsize_smart(fsize: int, precision: int = 3, B_suffix: bool = True) -> 
     sign = "" if fsize >= 0 else "-"
     fsize = abs(fsize)
     if fsize == 0:
-        return "0"
+        return f"0 {units[0]}"
     for i in range(len(units) - 1):
-        if fsize < 1024:
-            if fsize > 1000:
-                return f"{sign}{fsize/1024:.{max(0,precision-4)}f} {units[i+1]}"
-            elif fsize > 100:
-                return f"{sign}{fsize:.{max(0,precision-3)}f} {units[i]}"
-            elif fsize > 10:
-                return f"{sign}{fsize:.{max(0,precision-2)}f} {units[i]}"
-            else:
-                return f"{sign}{fsize:.{max(0,precision-1)}f} {units[i]}"
+        if fsize < 9.95:
+            return f"{sign}{fsize:.{max(0,sig_digits-1)}f} {units[i]}"
+        elif fsize < 99.5:
+            return f"{sign}{fsize:.{max(0,sig_digits-2)}f} {units[i]}"
+        elif fsize < 999.5:
+            return f"{sign}{fsize:.{max(0,sig_digits-3)}f} {units[i]}"
         fsize /= 1024  # type: ignore
     return f"{sign}{fsize:.2f} {units[-1]}"
 
 
 def clear_lines_above(num_lines: int):
-    """清除并覆盖指定行数以上的输出，注意：只能清除当前显示区域内的行，不能清除已经滚动出显示区域的内容。
+    """清除当前及上 num_lines(非负数) 行的终端内容。
 
-    Args:
-        num_lines (int): 要清除并覆盖的行数。
+    Notes:
+        1. 注意：该函数只能清除当前显示区域内的行，不能清除已经滚动出显示区域的内容。
+        2. 对于不支持ASCII转义序列的win32终端：通过colorama.init()，可支持部分转义序列。
+        3. 为什么不用"\\033[F"? 因为该转义序列不受colorama支持，所以在win32终端下无效。
     """
-    if num_lines > 0:
-        print(f"\033[{num_lines}F\033[J", end="")
+    num_lines = -1 if num_lines < 1 else num_lines
+    print(f"\r\033[{num_lines}A\033[J", end="")
 
 
 def get_folder_size(folder_path: str, verbose: bool = True) -> int:
@@ -675,12 +675,7 @@ def clear_screen(hard: bool = True):
             False: 仅清空终端当前屏幕显示。
     """
     if hard:
-        if os.name == "posix":
-            os.system("clear")
-        elif os.name == "nt":
-            os.system("cls")
-        else:
-            print("\033[2J\033[H", flush=True, end="")
+        os.system("cls" if os.name == "nt" else "clear")
     else:
         print("\033[H\033[J", flush=True, end="")
 
@@ -691,9 +686,13 @@ def input_strip(prompt: str = "") -> str:
 
 
 def get_prettytable_width(table: PrettyTable) -> int:
-    """获取 PrettyTable 对象的实际打印宽度，注意：表格两边的空格也会被计算在内。"""
-    first_line = table.get_string().splitlines()[0]
-    return len_to_print(first_line)
+    """获取 PrettyTable 对象的实际打印宽度。
+
+    Notes:
+        1. 表格两边的空格也会被计算在内；
+        2. 空列表的宽度为 0。
+    """
+    return len_to_print(table.get_string().split("\n", 1)[0])
 
 
 class ResponseChecker:
@@ -742,7 +741,64 @@ class ResponseChecker:
         return self.input_str not in self.VALID_RESPONSES
 
 
-#  ----- * 以下是大学时写的函数，之后也没有修改过 * -----
+def three_line_table(
+    table: PrettyTable,
+    body_color: ColorType = None,
+    title: Optional[str] = None,
+    footer: Optional[str] = None,
+    top_bottom_line_char: Optional[str] = "─",
+) -> str:
+    """
+    将 PrettyTable 对象转换为三线表字符串，表头加粗。
+
+    本函数生成的表格包含表头、表体、以及可选的顶线和底线。顶线和底线由 `top_bottom_line_char` 指定。
+    如果 `top_bottom_line_char` 为 None，则不添加顶线和底线。
+
+    Args:
+    - table (PrettyTable): 要转换的 PrettyTable 对象。
+    - body_color (Optional[str]): 表体部分的颜色字符串，可选。
+    - title (Optional[str]): 表格的标题，可选。如果提供了标题，则标题会居中显示在顶线上。
+    - footer (Optional[str]): 表格的页脚，可选。如果提供了页脚，则页脚会居中显示在底线上。
+    - top_bottom_line_char (Optional[str]): 顶线和底线使用的字符。如果为 None，则不添加顶线和底线。默认值为 "─"。
+
+    Returns:
+    - str: 转换后的三线表字符串。
+    """
+    is_border = table.border
+    table.border = False
+    header, body = (table.get_string() + "\n").split("\n", 1)
+    body = body.strip("\n")
+    table_width = get_prettytable_width(table)
+    table.border = is_border
+    terminal_width = fast_get_terminal_size().columns
+    line_length = min(table_width, terminal_width)
+
+    top_str = table_str = bottom_str = ""
+    if table_width:
+        header = BOLD(header)
+        body = ColorStr(body, color=body_color)
+        table_str = os.linesep.join([header, "-" * line_length, body])
+    if top_bottom_line_char:
+        char_width = len_to_print(top_bottom_line_char)  # 确定组成顶线和底线的字符的宽度
+        if title:
+            title_width = len_to_print(title)
+            top_str += top_bottom_line_char * ((line_length - title_width) // 2 // char_width)
+            top_str += title
+            top_str += top_bottom_line_char * ((line_length - title_width + 1) // 2 // char_width)
+        else:
+            top_str += top_bottom_line_char * (line_length // char_width)
+        if footer:
+            tail_width = len_to_print(footer)
+            bottom_str += top_bottom_line_char * ((line_length - tail_width) // 2 // char_width)
+            bottom_str += footer
+            bottom_str += top_bottom_line_char * ((line_length - tail_width + 1) // 2 // char_width)
+        else:
+            bottom_str += top_bottom_line_char * (line_length // char_width)
+
+    return os.linesep.join([top_str, table_str, bottom_str]).strip(os.linesep)
+
+
+#  ----- * 以下函数编写于多年前，可能已经过时 * -----
 
 
 def cut_printstr(lim: int, s: str):
@@ -752,7 +808,6 @@ def cut_printstr(lim: int, s: str):
     s = str(s)
     rs = ""
     lth = 0
-
     for i, c in enumerate(s):
         lth += len_to_print(c)
         if lth >= lim:
@@ -788,8 +843,6 @@ def path_intable(n: int, path: str):
 
 def show_indir(workdir, showhat="all"):
     """展示目录下文件表格,返回所选项的绝对路径,showhat参数选项：'all','dir','file'"""
-    from prettytable import PrettyTable
-
     objs = []
     if showhat != "file":
         objs.extend([i for i in os.scandir(workdir) if i.is_dir()])

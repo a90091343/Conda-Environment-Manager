@@ -18,9 +18,9 @@
 | 重命名环境                                | [R]           | 对选定的环境进行重命名(能转移Jupyter注册与创建的开始菜单项)                                                                                                                                                                                   |
 | 复制环境                                  | [P]           | 简便复制选定的环境                                                                                                                                                                                                               |
 | 管理环境的历史版本                    | [V]           | 查看，或回退到选定环境的历史版本(能自动添加所需要的conda包源以正确回溯)                                                                                                                                                                  |
-| 更新环境的 Conda 包                      | [U]           | 更新选定环境中的所有Conda软件包(能自动添加conda包源,并严格源顺序以正确更新包版本)                                                                                                                                                       |
-| 查看及清空缓存             | [C]           | 查看并清空pip/mamba/conda缓存                                                                                                                                                                                                |
-| 检查环境完整性                            | [H]           | 检查环境完整性，并显示环境健康情况报告                                                                                                                                                                                                             |
+| 更新环境的 Conda 包                      | [U]           | 更新选定环境中的所有Conda包(能自动添加相应Channel源，并严格源顺序以正确更新包版本；支持固定Conda包版本；支持提示Pip包)                                                                                                                                                       |
+| 查看及清空缓存             | [C]           | 查看并清空Conda/Pip缓存                                                                                                                                                                                                |
+| 检查环境完整性                            | [H]           | 使用`conda doctor`与`pip check`检查环境完整性，并显示健康情况报告                                                                                                                                                                                                             |
 
 #### 管理 Jupyter 内核
 
@@ -54,13 +54,13 @@
 ### 开始使用
 
 - #### 方法一 使用源码文件
-   1. 有 Python >= **3.10** 的用户级安装；
+   1. 有 Python >= **3.10** 的安装；
       
       在此 Python 环境下安装依赖：
    
       `python scripts/install_requirements.py`
 
-   2. 已安装了anaconda，Miniforge，miniconda等conda/mamba包管理环境；
+   2. 已安装了anaconda3，miniforge3，miniconda3等 conda/mamba 包管理环境；
    
    3. 下载 **conda_env_manager.py**, **MyTools.py**, **ColorStr.py** 3个文件于同一目录下，运行：
       
@@ -89,9 +89,9 @@
 | Rename Environment                         | [R]          | Rename the selected environment (can transfer Jupyter registration and start menu items created)                                                                                                                                      |
 | Duplicate Environment                      | [P]          | Easily duplicate the selected environment                                                                                                                                                                                            |
 | Manage Environment History                 | [V]          | View or roll back to a selected environment's previous versions (can automatically add required conda sources for correct rollback)                                                                                                   |
-| Update Conda Packages in Environment       | [U]          | Update all Conda packages in the selected environment (can automatically add conda sources and strictly follow the source order for correct package version updates)                                                                  |
-| View and Clear Cache                       | [C]          | View and clear pip/mamba/conda cache                                                                                                                                                                                                 |
-| Check Environment Integrity                | [H]          | Check the integrity of the environment and display a health report                                                                                                                                                                   |
+| Update Conda Packages in Environment       | [U]          | Update all Conda packages in the selected environment, automatically adding appropriate channel sources in strict order, supporting fixed Conda package versions, and providing prompts for Pip packages                                                                  |
+| View and Clear Cache                       | [C]          | View and clear Conda/Pip cache                                                                                                                                                                                                 |
+| Check Environment Integrity                | [H]          | Use `conda doctor` and `pip check` to verify environment integrity and display a health status report                                                                                                                                                                   |
 
 #### Managing Jupyter Kernels
 
@@ -125,13 +125,13 @@
 ### Getting Started
 
 - #### Method 1: Using the Source Code Files
-   1. Python >= **3.10** installation at user level is required.
+   1. Python >= **3.10** installation is required.
 
       Install dependencies in this Python environment by run:
 
       `python scripts/install_requirements.py`
 
-   2. Anaconda, Miniforge, miniconda, or any conda/mamba package management environment must be installed.
+   2. Anaconda3, miniforge3, miniconda3, or any conda/mamba package management environment must be installed.
 
    3. Download the files **conda_env_manager.py**, **MyTools.py**, **ColorStr.py** and **english_translator.py**, placing them in the same directory.
 

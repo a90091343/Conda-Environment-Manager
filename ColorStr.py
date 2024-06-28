@@ -104,8 +104,10 @@ def _apply_color_style(s, color, bg_color, font_style):
     if _Style.RESET_ALL in s:  # 支持嵌套应用
         s_list = s.split(_Style.RESET_ALL)
         color_str = "".join([f"{style_code}{part}{_Style.RESET_ALL}" for part in s_list])
-    else:
+    elif style_code:
         color_str = f"{style_code}{s}{_Style.RESET_ALL}"
+    else:
+        color_str = s
 
     return color_str
 
