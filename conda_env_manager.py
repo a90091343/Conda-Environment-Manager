@@ -27,7 +27,7 @@ elif os.name == "nt":
 USER_HOME = os.path.expanduser("~")
 
 PROGRAM_NAME = "Conda-Environment-Manager"
-PROGRAM_VERSION = "1.8.2"
+PROGRAM_VERSION = "1.8.5"
 
 # ***** Global User Settings *****
 # <提示> 这些全局设置以CFG_开头，用于控制程序的默认行为，且在程序运行时*不可*更改。
@@ -1984,8 +1984,8 @@ def do_action(inp, env_infos_dict: EnvInfosDict):
 
     # 如果按下的是[J]，则显示、管理所有已注册的Jupyter环境及清理弃用项
     elif inp.upper() == "J":
-        command = [CONDA_EXE_PATH, "list", "--json"]
-        if subprocess.run(command, capture_output=True, text=True).stdout.find("ipykernel") == -1:
+        jupyter_exe_path = re.sub(r"conda(?=($|\.exe$))", "jupyter", CONDA_EXE_PATH)
+        if not os.path.isfile(jupyter_exe_path):
             print(LIGHT_YELLOW("[提示] 未检测到 Jupyter 命令，正尝试向 base 环境安装 ipykernel..."))
             command = get_cmd(["mamba install ipykernel -y"])
             if subprocess.run(command, shell=True).returncode:
