@@ -1,5 +1,5 @@
 - [中文](#中文)
-- [English](#English)
+- [English](#english)
 
 ---
 
@@ -43,6 +43,11 @@
 
 ![主界面](extras/images/主界面.gif)
 
+**搜索 Conda 包界面**
+
+<details>
+<summary>展开/折叠</summary>
+
 **搜索-概览**
 
 ![搜索-概览](extras/images/搜索-概览.png)
@@ -51,23 +56,26 @@
 
 ![搜索-精简显示](extras/images/搜索-精简显示.png)
 
+</details>
+
 ### 开始使用
 
 - #### 方法一 使用源码文件
+
    1. 有 Python >= **3.10** 的安装；
-      
+
       在此 Python 环境下安装依赖：
-   
+
       `python scripts/install_requirements.py`
 
    2. 已安装了anaconda3，miniforge3，miniconda3等 conda/mamba 包管理环境；
-   
+
    3. 下载 **conda_env_manager.py**, **MyTools.py**, **ColorStr.py** 3个文件于同一目录下，运行：
-      
+
       `python conda_env_manager.py`
-      
+
       3.1 命令行使用提示：
-      
+
       *加`-h`参数以显示帮助；`-d`参数指定脚本的工作目录；`-p`参数指明其Conda/Mamba发行版安装位置(环境主目录安装在了非常规位置的情况)*
 
 - #### 方法二 使用Release页面的二进制程序
@@ -114,6 +122,11 @@
 
 ![Main](extras/images/Main.gif)
 
+**Search Conda Packages Interface**
+
+<details>
+<summary>Expand/Collapse</summary>
+
 **Search - Overview**
 
 ![Search-Overview](extras/images/Search-Overview.png)
@@ -122,9 +135,12 @@
 
 ![Search-Simplified_Display](extras/images/Search-Simplified_Display.png)
 
+</details>
+
 ### Getting Started
 
 - #### Method 1: Using the Source Code Files
+
    1. Python >= **3.10** installation is required.
 
       Install dependencies in this Python environment by run:
@@ -137,12 +153,12 @@
 
       Run `python scripts/english_translator.py` now to translate the script to English.
 
-   4. If translated successfully, then run: 
-   
+   4. If translated successfully, then run:
+
       `python conda_env_manager.py`
 
       4.1 Command-line Usage Tips:
-   
+
          *Add the `-h` parameter to display help; use the `-d` parameter to specify the working directory of the script; and use the `-p` parameter to specify the installation location of its Conda/Mamba distribution (in cases where the environment's main directory is installed in an unconventional location).*
 
 - #### Method 2: Use the binary program from the Release page
