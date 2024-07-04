@@ -4456,6 +4456,7 @@ def do_action(inp, env_infos_dict: EnvInfosDict):
             cmd_str = get_linux_activation_shell_cmd() + f" && conda activate '{name}'"
             command = ["bash", "-c", f'bash --init-file <(echo ". $HOME/.bashrc; {cmd_str}")']
 
+        os.environ["PYTHONNOUSERSITE"] = "True"  # 防止用户site-packages影响环境
         subprocess.run(command)
 
 
