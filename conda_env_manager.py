@@ -27,7 +27,7 @@ elif os.name == "nt":
 USER_HOME = os.path.expanduser("~")
 
 PROGRAM_NAME = "Conda-Environment-Manager"
-PROGRAM_VERSION = "1.8.5"
+PROGRAM_VERSION = "1.8.6"
 
 # ***** Global User Settings *****
 # <提示> 这些全局设置以CFG_开头，用于控制程序的默认行为，且在程序运行时*不可*更改。
@@ -4513,6 +4513,11 @@ if __name__ == "__main__":
         action="store_true",
         help=f"删除程序数据文件夹 ({LIGHT_CYAN(data_manager.program_data_home)})",
     )
+    parser.add_argument(
+        "--print-only",
+        action="store_true",
+        help="仅打印 Conda 环境信息，不进入交互界面",
+    )
     args = parser.parse_args()
     if args.delete_data_files:
         if os.path.exists(data_manager.program_data_home):
@@ -4576,6 +4581,16 @@ if __name__ == "__main__":
         )
         if os.path.split(CONDA_HOME)[1].lower() != args.distribution_name.lower():
             print(YELLOW(f"[提示] 未检测到指定的发行版 ({args.distribution_name})，将使用默认发行版"))
+    if args.print_only:
+        env_size_recalc_force_enable = True
+        main_display_mode = 3
+        env_infolist_dict = get_env_infos()
+        table = get_envs_prettytable(env_infolist_dict)
+        table_rstrip_width = len_to_print(table.get_string().splitlines()[0].rstrip())
+        _print_header(table_rstrip_width, env_infolist_dict)
+        _print_envs_table(table, env_infolist_dict)
+        sys.exit(0)
+
     workdir = args.workdir if args.workdir is not None else USER_HOME
     if os.path.isdir(workdir):
         if CONDA_HOME == "error":
