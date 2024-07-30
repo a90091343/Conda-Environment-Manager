@@ -27,7 +27,7 @@ elif os.name == "nt":
 USER_HOME = os.path.expanduser("~")
 
 PROGRAM_NAME = "Conda-Environment-Manager"
-PROGRAM_VERSION = "1.8.6"
+PROGRAM_VERSION = "1.8.7"
 
 # ***** Global User Settings *****
 # <提示> 这些全局设置以CFG_开头，用于控制程序的默认行为，且在程序运行时*不可*更改。
@@ -1824,6 +1824,12 @@ def do_action(inp, env_infos_dict: EnvInfosDict):
                 ]
             )
             subprocess.run(command, shell=True)
+
+        # 隔离site.USER_SITE，防止用户site-packages中的包影响环境
+        command = get_cmd([f'conda activate "{new_name}"', "conda env config vars set PYTHONNOUSERSITE=True"])
+        returncode = subprocess.run(command, shell=True).returncode
+        if returncode == 0:
+            print(LIGHT_GREEN(f"[提示] 已设置 PYTHONNOUSERSITE 环境变量以隔离用户site-packages"))
 
     # 如果按下的是[I]，则将指定环境注册到Jupyter
     elif inp.upper() == "I":
@@ -4371,9 +4377,17 @@ def do_action(inp, env_infos_dict: EnvInfosDict):
                 print(DIM(f"{' * Conda Doctor * ':-^{fast_get_terminal_size().columns - 5}}"))
                 command = get_cmd([f'conda doctor -n "{name}"'])
                 subprocess.run(command, shell=True)
-                command = get_cmd([f'conda activate "{name}"', "pip check"])
                 print(DIM(f"{' * Pip Check * ':-^{fast_get_terminal_size().columns - 5}}"))
+                command = get_cmd([f'conda activate "{name}"', "pip check"])
                 subprocess.run(command, shell=True)
+                prompt = "PYTHONNOUSERSITE: No User Site Packages"
+                print(DIM(f"{f' * {prompt} * ':-^{fast_get_terminal_size().columns - 5}}"))
+                command = get_cmd([f'conda activate "{name}"', "set"])
+                output = subprocess.run(command, shell=True, capture_output=True, text=True).stdout
+                if "PYTHONNOUSERSITE=1" in output or "PYTHONNOUSERSITE=True" in output:
+                    print(f"{LIGHT_GREEN('[✓]')}")
+                else:
+                    print(f"{LIGHT_RED('[×]')}")
                 print("-" * (fast_get_terminal_size().columns - 5))
         else:
 
@@ -4391,9 +4405,16 @@ def do_action(inp, env_infos_dict: EnvInfosDict):
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.STDOUT,
                     )
-                    conda_res, _ = await proc1.communicate()
-                    pip_res, _ = await proc2.communicate()
-                    return conda_res.decode("utf-8"), pip_res.decode("utf-8")
+                    command3 = get_cmd([f'conda activate "{name}"', "printenv PYTHONNOUSERSITE"])
+                    proc3 = await asyncio.create_subprocess_shell(
+                        command3,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.STDOUT,
+                    )
+                    conda_res = (await proc1.communicate())[0].decode("utf-8")
+                    pip_res = (await proc2.communicate())[0].decode("utf-8")
+                    no_user_site_res = (await proc3.communicate())[0].decode("utf-8")
+                    return conda_res, pip_res, no_user_site_res
                 except Exception as e:
                     return RED(str(e)), RED(str(e))
 
@@ -4405,11 +4426,17 @@ def do_action(inp, env_infos_dict: EnvInfosDict):
                 print("-" * (fast_get_terminal_size().columns - 5))
                 for i, task in enumerate(tasks, 1):
                     print(f"[{i}/{len(env_check_names)}] 正在检查环境 {LIGHT_CYAN(task.get_name())} 的健康情况...")
-                    conda_doctor_res, pip_check_res = await task
+                    conda_doctor_res, pip_check_res, no_user_site_res = await task
                     print(DIM(f"{' * Conda Doctor * ':-^{fast_get_terminal_size().columns - 5}}"))
                     print(conda_doctor_res)
                     print(DIM(f"{' * Pip Check * ':-^{fast_get_terminal_size().columns - 5}}"))
                     print(pip_check_res)
+                    prompt = "PYTHONNOUSERSITE: No User Site Packages"
+                    print(DIM(f"{f' * {prompt} * ':-^{fast_get_terminal_size().columns - 5}}"))
+                    if no_user_site_res.strip() in ("1", "True"):
+                        print(f"{LIGHT_GREEN('[✓]')}")
+                    else:
+                        print(f"{LIGHT_RED('[×]')}")
                     print("-" * (fast_get_terminal_size().columns - 5))
 
             asyncio.run(async_check_main())
@@ -4456,7 +4483,6 @@ def do_action(inp, env_infos_dict: EnvInfosDict):
             cmd_str = get_linux_activation_shell_cmd() + f" && conda activate '{name}'"
             command = ["bash", "-c", f'bash --init-file <(echo ". $HOME/.bashrc; {cmd_str}")']
 
-        os.environ["PYTHONNOUSERSITE"] = "True"  # 防止用户site-packages影响环境
         subprocess.run(command)
 
 

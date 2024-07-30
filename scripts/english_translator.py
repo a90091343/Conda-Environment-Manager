@@ -208,6 +208,7 @@ translation_dict = {
     'error_msg_func=lambda x: f"输入 {LIGHT_YELLOW(x)} "': 'error_msg_func=lambda x: f"Input {LIGHT_YELLOW(x)} "',
     "[提示] 未检测到 Conda 环境的历史版本，无法回退！": "[Tip] No historical versions of the Conda environment detected, cannot roll back!",
     "仅打印 Conda 环境信息，不进入交互界面": "Print Conda environment information only, without entering the interactive interface",
+    "[提示] 已设置 PYTHONNOUSERSITE 环境变量以隔离用户site-packages": "[Tip] The PYTHONNOUSERSITE environment variable has been set to isolate user site-packages",
     """# ***** Global User Settings *****
 # <提示> 这些全局设置以CFG_开头，用于控制程序的默认行为，且在程序运行时*不可*更改。
 # [设置 1] 控制[S]搜索功能在这期间内使用缓存搜索，而不重新联网下载索引（单位：分钟）。
