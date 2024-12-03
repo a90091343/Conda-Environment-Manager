@@ -27,7 +27,7 @@ elif os.name == "nt":
 USER_HOME = os.path.expanduser("~")
 
 PROGRAM_NAME = "Conda-Environment-Manager"
-PROGRAM_VERSION = "1.8.7"
+PROGRAM_VERSION = "1.8.8"
 
 # ***** Global User Settings *****
 # <提示> 这些全局设置以CFG_开头，用于控制程序的默认行为，且在程序运行时*不可*更改。
@@ -1678,7 +1678,7 @@ def do_action(inp, env_infos_dict: EnvInfosDict):
             inp = input_strip("[(Y)/n] >>> ")
             if ResponseChecker(inp, default="yes").is_yes():
                 for i in range(env_num - valid_env_num):
-                    command = get_cmd([f'mamba remove -n "{invalid_env_names[i]}" --all --yes --quiet'])
+                    command = get_cmd([f'conda remove -n "{invalid_env_names[i]}" --all --yes --quiet'])
                     subprocess.run(command, shell=True)
                     if os.path.exists(invalid_env_paths[i]):
                         rmtree(invalid_env_paths[i])
@@ -1701,7 +1701,7 @@ def do_action(inp, env_infos_dict: EnvInfosDict):
         if not ResponseChecker(inp, default="yes").is_yes():
             return
         for name in env_delete_names:
-            command = get_cmd([f'mamba remove -n "{name}" --all --yes --quiet'])
+            command = get_cmd([f'conda remove -n "{name}" --all --yes --quiet'])
             subprocess.run(command, shell=True)
             command = get_cmd([f"jupyter kernelspec list --json"])
             result_text = subprocess.run(command, shell=True, stdout=subprocess.PIPE, text=True).stdout
@@ -1872,7 +1872,7 @@ def do_action(inp, env_infos_dict: EnvInfosDict):
             _command = [f'conda activate "{name}"']
             if result_text.find("ipykernel") == -1:
                 print(LIGHT_YELLOW("[提示] 该环境中未检测到 ipykernel 包，正在为环境安装 ipykernel 包..."))
-                _command.append("mamba install ipykernel --no-update-deps --yes --quiet")
+                _command.append("conda install ipykernel --no-update-deps --yes --quiet")
             _command.append(
                 f'python -m ipykernel install --user --name "{jup_name}" --display-name "{jup_disp_name}"'
             )
@@ -1901,8 +1901,8 @@ def do_action(inp, env_infos_dict: EnvInfosDict):
             )
             command = get_cmd(
                 [
-                    f'mamba create -n "{new_name}" --clone "{name}"',
-                    f'mamba remove -n "{name}" --all --yes --quiet',
+                    f'conda create -n "{new_name}" --clone "{name}"',
+                    f'conda remove -n "{name}" --all --yes --quiet',
                 ]
             )
             subprocess.run(command, shell=True)
@@ -1985,7 +1985,7 @@ def do_action(inp, env_infos_dict: EnvInfosDict):
             )
             if new_name == "":
                 new_name = default_name
-            command = get_cmd([f'mamba create -n "{new_name}" --clone "{name}" --quiet'])
+            command = get_cmd([f'conda create -n "{new_name}" --clone "{name}" --quiet'])
             subprocess.run(command, shell=True)
 
     # 如果按下的是[J]，则显示、管理所有已注册的Jupyter环境及清理弃用项
@@ -2159,7 +2159,7 @@ def do_action(inp, env_infos_dict: EnvInfosDict):
     # 如果按下的是[C]，则运行pip cache purge和mamba clean --all -y来清空所有pip与conda缓存
     elif inp.upper() == "C":
         print(LIGHT_YELLOW("[提示] 加载缓存信息中，请稍等..."))
-        command = get_cmd(["mamba clean --all --dry-run --json --quiet", "pip cache dir"])
+        command = get_cmd(["conda clean --all --dry-run --json --quiet", "pip cache dir"])
         result_text = subprocess.run(
             command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True
         ).stdout
@@ -2254,18 +2254,18 @@ def do_action(inp, env_infos_dict: EnvInfosDict):
             if ResponseChecker(inp, default="yes").is_no():
                 return
             elif ResponseChecker(inp, default="yes").is_yes():
-                command = get_cmd(["mamba clean --all -y", "pip cache purge"])
+                command = get_cmd(["conda clean --all -y", "pip cache purge"])
             else:
                 command_list = []
                 for i in inp.split():
                     if i == "1":
-                        command_list.append("mamba clean --index-cache -y")
+                        command_list.append("conda clean --index-cache -y")
                     elif i == "2":
-                        command_list.append("mamba clean --tarballs -y")
+                        command_list.append("conda clean --tarballs -y")
                     elif i == "3":
-                        command_list.append("mamba clean --packages -y")
+                        command_list.append("conda clean --packages -y")
                     elif i == "4":
-                        command_list.append("mamba clean --logfiles --tempfiles -y")
+                        command_list.append("conda clean --logfiles --tempfiles -y")
                     elif i == "5":
                         command_list.append("pip cache purge")
                 command = get_cmd(command_list)
@@ -2273,7 +2273,7 @@ def do_action(inp, env_infos_dict: EnvInfosDict):
         except Exception as e:
             print(
                 LIGHT_RED(LIGHT_RED("[错误] ") + str(e)),
-                LIGHT_RED("[错误] mamba clean --all --dry-run --json 命令输出有误！无法解析，输出如下："),
+                LIGHT_RED("[错误] conda clean --all --dry-run --json 命令输出有误！无法解析，输出如下："),
                 result_text,
                 LIGHT_YELLOW("[提示] 已启动默认清理程序"),
                 sep="\n",
@@ -2282,7 +2282,7 @@ def do_action(inp, env_infos_dict: EnvInfosDict):
             inp = input_strip("[(Y)/n] >>> ")
             if not ResponseChecker(inp, default="yes").is_yes():
                 return
-            command = get_cmd(["mamba clean --all -y", "pip cache purge"])
+            command = get_cmd(["conda clean --all -y", "pip cache purge"])
             subprocess.run(command, shell=True)
 
     # 如果按下的是[U]，则更新指定环境的所有包
@@ -3044,21 +3044,16 @@ def do_action(inp, env_infos_dict: EnvInfosDict):
             if is_legacy_solver:
                 head_cmd = "conda search"
             else:
-                head_cmd = "mamba repoquery search"
+                head_cmd = "conda repoquery search"
 
             query_option = f'"{search_pkg_info}" {" ".join(["-c "+i for i in total_channels])}'
             cmd_str = f'{head_cmd} {query_option} --json --quiet {"--use-index-cache" if use_cache else ""}'
 
             command = get_cmd([cmd_str])
 
-            if "mamba repoquery search" in command:  # 解决win下的mamba输出强制utf-8编码问题
-                result_text = subprocess.run(
-                    command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, shell=True
-                ).stdout.decode("utf-8")
-            else:
-                result_text = subprocess.run(
-                    command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, shell=True, text=True
-                ).stdout
+            result_text = subprocess.run(
+                command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, shell=True, text=True
+            ).stdout
 
             is_error = False
             pkginfos_list_raw = []
@@ -3107,7 +3102,7 @@ def do_action(inp, env_infos_dict: EnvInfosDict):
                 + LIGHT_GREEN(CFG_DEFAULT_SEARCH_CHANNELS)
                 + LIGHT_YELLOW("，如需额外源请在末尾添加 -c 参数")
             )
-            print("[提示2] 可用 mamba repoquery depends/whoneeds 命令列出包的依赖项/列出需要给定包的程序包")
+            print("[提示2] 可用 conda repoquery depends/whoneeds 命令列出包的依赖项/列出需要给定包的程序包")
             print(
                 "[提示3] 搜索语法为 Name=Version=Build，后两项可选（示例: numpy>1.17,<1.19.2 *numpy*=1.17.*=py38*）"
             )
