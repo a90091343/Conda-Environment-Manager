@@ -2493,7 +2493,7 @@ def do_action(inp, env_infos_dict: EnvInfosDict):
                     if parts[i - 1] in ("main", "free", "r", "pro"):
                         return "defaults"
                     return parts[i - 1]
-            return None
+            return ""
 
         def format_major_minor(match: re.Match):
             major, minor = match.groups()
@@ -3158,6 +3158,9 @@ def do_action(inp, env_infos_dict: EnvInfosDict):
                 return
 
             # pkginfos_list_* :list[dict[str, Any]]每一dict是一个包的信息，list是不同的包组成的列表
+            pkginfos_list_raw = [
+                pkginfo_dict for pkginfo_dict in pkginfos_list_raw if pkginfo_dict.get("channel") != "localhost"
+            ]  # 过滤掉结果中已安装的本地包，避免重复显示
             for pkginfo_dict in pkginfos_list_raw:
                 filter_pkg_info(pkginfo_dict)
 
