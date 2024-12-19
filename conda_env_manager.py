@@ -27,7 +27,7 @@ elif os.name == "nt":
 USER_HOME = os.path.expanduser("~")
 
 PROGRAM_NAME = "Conda-Environment-Manager"
-PROGRAM_VERSION = "1.8.8"
+PROGRAM_VERSION = "1.8.9"
 
 # ***** Global User Settings *****
 # <提示> 这些全局设置以CFG_开头，用于控制程序的默认行为，且在程序运行时*不可*更改。
@@ -1764,7 +1764,9 @@ def do_action(inp, env_infos_dict: EnvInfosDict):
         if install_opts.find("--+") != -1:
             install_opts = install_opts.replace("--+", CFG_CMD_TRIGGERED_PKGS)
             is_register_jupyter = True if "ipykernel" in CFG_CMD_TRIGGERED_PKGS else False
-
+        install_opts = " ".join(
+            f'"{part}"' for part in install_opts.replace('"', "").replace("'", "").split()
+        )  # 用双引号包裹每个参数
         py_version = f"={py_version}" if py_version else ""
         command = get_cmd([f'mamba create -n "{new_name}" python{py_version} {install_opts}'])
         cmd_res = subprocess.run(command, shell=True).returncode
@@ -3138,9 +3140,12 @@ def do_action(inp, env_infos_dict: EnvInfosDict):
             total_channels = ordered_unique(total_channels)
 
             search_meta_data = data_manager.get_data("search_meta_data")
-            if search_meta_data.get("last_update_time", 0) >= (
-                time.time() - CFG_SEARCH_CACHE_EXPIRE_MINUTES * 60
-            ) and set(total_channels).issubset(search_meta_data.get("total_channels", [])):
+            last_update_time = search_meta_data.get("last_update_time", 0)
+            if _get_base_env_modified_info()[2] <= 0:  # 如果pkgs/cache目录为空，不使用缓存
+                last_update_time = 0
+            if last_update_time >= (time.time() - CFG_SEARCH_CACHE_EXPIRE_MINUTES * 60) and set(
+                total_channels
+            ).issubset(search_meta_data.get("total_channels", [])):
                 use_cache = True
                 search_meta_data["total_channels"] = list(
                     set(total_channels) | set(search_meta_data.get("total_channels", []))
