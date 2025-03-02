@@ -45,7 +45,7 @@ CFG_FULL_TERMINAL_CLEAR = True
 # [设置 5] 在[+]安装环境功能时，输入快捷命令“--+”时所代表的Conda包合集（如果有ipykernel，则会自动注册到用户Jupyter）。
 CFG_CMD_TRIGGERED_PKGS: str = "matplotlib scikit-learn numba pandas ipykernel"
 # [设置 6] 在[S]搜索功能时，默认启用的 Channel 源，即 Conda 包的搜索范围
-CFG_DEFAULT_SEARCH_CHANNELS: str = "pytorch nvidia intel conda-forge defaults"
+CFG_DEFAULT_SEARCH_CHANNELS: str = "pytorch conda-forge defaults"
 
 
 allowed_release_names = [
